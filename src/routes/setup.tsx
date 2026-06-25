@@ -1,7 +1,6 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useState, useEffect, useRef } from "react";
-import { setupApi } from "@/lib/api/client";
-import { setAuthToken } from "@/lib/api/client";
+import { setupApi, setAuthToken } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,8 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
-import { CircleCheck as CheckCircle2, ChevronRight, Loader as Loader2, Lock, Building2, ShieldCheck, Palette, Settings2, Globe, Network, Server, Clock, Printer, Users } from "lucide-react";
+import { CircleCheck as CheckCircle2, ChevronRight, Loader as Loader2, Lock, Building2, ShieldCheck, Globe, Server, Network, Clock, Printer, Users, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/setup")({
@@ -25,10 +23,9 @@ export const Route = createFileRoute("/setup")({
 
 const STEPS = [
   { id: 1, label: "Token", icon: Lock },
-  { id: 2, label: "Dominio", icon: Globe },
-  { id: 3, label: "Rede", icon: Network },
-  { id: 4, label: "Branding", icon: Palette },
-  { id: 5, label: "Concluido", icon: CheckCircle2 },
+  { id: 2, label: "Administrador", icon: ShieldCheck },
+  { id: 3, label: "Organizacao", icon: Building2 },
+  { id: 4, label: "Concluido", icon: CheckCircle2 },
 ] as const;
 
 type Step = (typeof STEPS)[number]["id"];
@@ -49,7 +46,7 @@ function SetupPage() {
     confirm: "",
   });
 
-  // Step 2: Organization basic info
+  // Step 3: Organization info
   const [org, setOrg] = useState({
     nome: "",
     sigla: "",
@@ -59,10 +56,6 @@ function SetupPage() {
     dcPrimaryIp: "",
     dcSecondaryIp: "",
     dcFqdn: "",
-  });
-
-  // Step 3: Network config
-  const [network, setNetwork] = useState({
     dnsPrimary: "",
     dnsSecondary: "",
     searchDomains: "",
@@ -70,28 +63,17 @@ function SetupPage() {
     timezone: "America/Sao_Paulo",
     httpProxy: "",
     httpsProxy: "",
-    ftpProxy: "",
-    noProxy: "localhost,127.0.0.1",
-    authBackend: "sssd",
-    authMethod: "ads",
+    noProxy: "localhost, 127.0.0.1, 10.0.0.0/8, *.intraer",
+    authBackend: "sssd" as "sssd" | "winbind",
+    authMethod: "ads" as "ads" | "ldap",
     printServer: "",
     defaultPrinter: "",
   });
 
-  // Step 4: Branding
-  const [branding, setBranding] = useState({
-    displayName: "",
-    wallpaperUrl: "",
-    wallpaperLogin: "",
-    logoUrl: "",
-    greeterUrl: "",
-    theme: "Mint-Y-Dark",
-    deployProfile: "standard",
-  });
-
   // Check if setup already completed on mount
   useEffect(() => {
-    setupApi.status()
+    setupApi
+      .status()
       .then((status) => {
         if (status.completed) {
           nav({ to: "/login" });
@@ -109,7 +91,7 @@ function SetupPage() {
     if (step === STEPS.length && setupCompleteRef.current) {
       const timer = setTimeout(() => {
         nav({ to: "/painel" });
-      }, 1500);
+      }, 2000);
       return () => clearTimeout(timer);
     }
   }, [step, nav]);
@@ -126,11 +108,9 @@ function SetupPage() {
     );
   }
 
-  // Step navigation
   const nextStep = () => setStep((s) => Math.min(s + 1, STEPS.length) as Step);
   const prevStep = () => setStep((s) => Math.max(s - 1, 1) as Step);
 
-  // Validate step 1
   const validateStep1 = () => {
     if (!token.trim()) {
       toast.error("Informe o token de configuracao.");
@@ -139,7 +119,6 @@ function SetupPage() {
     return true;
   };
 
-  // Validate step 2
   const validateStep2 = () => {
     if (!admin.email || !admin.password) {
       toast.error("Preencha email e senha do administrador.");
@@ -153,6 +132,10 @@ function SetupPage() {
       toast.error("Senhas nao coincidem.");
       return false;
     }
+    return true;
+  };
+
+  const validateStep3 = () => {
     if (!org.nome || !org.sigla) {
       toast.error("Nome e sigla da organizacao sao obrigatorios.");
       return false;
@@ -165,70 +148,56 @@ function SetupPage() {
       toast.error("O IP do Domain Controller primario e obrigatorio.");
       return false;
     }
-    return true;
-  };
-
-  // Validate step 3
-  const validateStep3 = () => {
-    if (!network.dnsPrimary) {
+    if (!org.dnsPrimary) {
       toast.error("O DNS primario e obrigatorio.");
       return false;
     }
     return true;
   };
 
-  // Submit setup
   const submitSetup = async () => {
-    if (!validateStep2() || !validateStep3()) return;
+    if (!validateStep3()) return;
 
     setBusy(true);
     try {
       const result = await setupApi.complete({
         setupToken: token.trim(),
-        // Admin
         adminEmail: admin.email.trim().toLowerCase(),
         adminPassword: admin.password,
         adminName: admin.name.trim(),
-        // Organization
         orgName: org.nome.trim(),
         orgSigla: org.sigla.trim().toUpperCase(),
-        // Domain
         fqdn: org.fqdn.trim().toLowerCase(),
         netbios: org.netbios.trim().toUpperCase() || org.sigla.trim().toUpperCase(),
         realm: org.realm.trim().toUpperCase() || org.sigla.trim().toUpperCase() + ".INTRAER",
         dcPrimaryIp: org.dcPrimaryIp.trim(),
         dcSecondaryIp: org.dcSecondaryIp.trim() || undefined,
         dcFqdn: org.dcFqdn.trim(),
-        // DNS
-        dnsPrimary: network.dnsPrimary.trim(),
-        dnsSecondary: network.dnsSecondary.trim() || undefined,
-        searchDomains: network.searchDomains.split(",").map(s => s.trim()).filter(Boolean),
-        // NTP
-        ntpServers: network.ntpServers.split(",").map(s => s.trim()).filter(Boolean),
-        timezone: network.timezone,
-        // Proxy
-        httpProxy: network.httpProxy.trim(),
-        httpsProxy: network.httpsProxy.trim(),
-        ftpProxy: network.ftpProxy.trim() || undefined,
-        noProxy: network.noProxy.split(",").map(s => s.trim()).filter(Boolean),
-        // Auth
-        authBackend: network.authBackend,
-        authMethod: network.authMethod,
-        // Printers
-        printServer: network.printServer.trim() || undefined,
-        defaultPrinter: network.defaultPrinter.trim() || undefined,
-        // Branding
-        displayName: branding.displayName.trim() || org.nome.trim(),
-        wallpaperUrl: branding.wallpaperUrl.trim() || undefined,
-        wallpaperLogin: branding.wallpaperLogin.trim() || undefined,
-        logoUrl: branding.logoUrl.trim() || undefined,
-        greeterUrl: branding.greeterUrl.trim() || undefined,
-        theme: branding.theme,
-        deployProfile: branding.deployProfile,
+        dnsPrimary: org.dnsPrimary.trim(),
+        dnsSecondary: org.dnsSecondary.trim() || undefined,
+        searchDomains: org.searchDomains
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean),
+        ntpServers: org.ntpServers
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean),
+        timezone: org.timezone,
+        httpProxy: org.httpProxy.trim(),
+        httpsProxy: org.httpsProxy.trim(),
+        noProxy: org.noProxy
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean),
+        authBackend: org.authBackend,
+        authMethod: org.authMethod,
+        printServer: org.printServer.trim() || undefined,
+        defaultPrinter: org.defaultPrinter.trim() || undefined,
       });
 
       setAuthToken(result.token);
-      toast.success("Sistema configurado!");
+      toast.success("Sistema configurado com sucesso!");
       setupCompleteRef.current = true;
       setStep(STEPS.length);
     } catch (e: any) {
@@ -328,169 +297,59 @@ function SetupPage() {
             </Card>
           )}
 
-          {/* STEP 2: Admin + Domain */}
+          {/* STEP 2: Admin */}
           {step === 2 && (
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <ShieldCheck className="size-5 text-primary" /> Administrador e Dominio
+                  <ShieldCheck className="size-5 text-primary" /> Administrador do Sistema
                 </CardTitle>
                 <CardDescription>
-                  Configure a conta admin e o dominio Active Directory da organizacao.
+                  Crie a conta de administrador global (admin_gap). Esta conta tera acesso total ao sistema.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-6">
-                {/* Admin */}
-                <div className="border-b pb-4">
-                  <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
-                    <Users className="size-4" /> Administrador do Sistema
-                  </h3>
-                  <div className="grid gap-3">
-                    <div className="space-y-1.5">
-                      <Label>Nome completo</Label>
-                      <Input
-                        value={admin.name}
-                        onChange={(e) => setAdmin({ ...admin, name: e.target.value })}
-                        placeholder="Ten Cel Joao Silva"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>E-mail *</Label>
-                      <Input
-                        type="email"
-                        value={admin.email}
-                        onChange={(e) => setAdmin({ ...admin, email: e.target.value })}
-                        placeholder="admin@gapsp.intraer"
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1.5">
-                        <Label>Senha *</Label>
-                        <Input
-                          type="password"
-                          value={admin.password}
-                          onChange={(e) => setAdmin({ ...admin, password: e.target.value })}
-                          placeholder="Minimo 6 caracteres"
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label>Confirmar senha *</Label>
-                        <Input
-                          type="password"
-                          value={admin.confirm}
-                          onChange={(e) => setAdmin({ ...admin, confirm: e.target.value })}
-                        />
-                      </div>
-                    </div>
+              <CardContent className="space-y-5">
+                <div className="space-y-1.5">
+                  <Label>Nome completo</Label>
+                  <Input
+                    value={admin.name}
+                    onChange={(e) => setAdmin({ ...admin, name: e.target.value })}
+                    placeholder="Ten Cel Joao Silva"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>E-mail *</Label>
+                  <Input
+                    type="email"
+                    value={admin.email}
+                    onChange={(e) => setAdmin({ ...admin, email: e.target.value })}
+                    placeholder="admin@gapsp.intraer"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>Senha *</Label>
+                    <Input
+                      type="password"
+                      value={admin.password}
+                      onChange={(e) => setAdmin({ ...admin, password: e.target.value })}
+                      placeholder="Minimo 6 caracteres"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Confirmar senha *</Label>
+                    <Input
+                      type="password"
+                      value={admin.confirm}
+                      onChange={(e) => setAdmin({ ...admin, confirm: e.target.value })}
+                    />
                   </div>
                 </div>
 
-                {/* Organization */}
-                <div className="border-b pb-4">
-                  <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
-                    <Building2 className="size-4" /> Organizacao
-                  </h3>
-                  <div className="grid gap-3">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1.5">
-                        <Label>Sigla *</Label>
-                        <Input
-                          value={org.sigla}
-                          onChange={(e) => setOrg({ ...org, sigla: e.target.value.toUpperCase() })}
-                          placeholder="GAPSP"
-                          className="font-mono"
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label>Nome completo *</Label>
-                        <Input
-                          value={org.nome}
-                          onChange={(e) => setOrg({ ...org, nome: e.target.value })}
-                          placeholder="Grupamento de Apoio de Sao Paulo"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Domain */}
-                <div className="border-b pb-4">
-                  <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
-                    <Globe className="size-4" /> Configuracao de Dominio AD
-                  </h3>
-                  <div className="grid gap-3">
-                    <div className="grid grid-cols-3 gap-3">
-                      <div className="space-y-1.5">
-                        <Label>FQDN *</Label>
-                        <Input
-                          value={org.fqdn}
-                          onChange={(e) => setOrg({ ...org, fqdn: e.target.value.toLowerCase() })}
-                          placeholder="gapsp.intraer"
-                          className="font-mono"
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label>NETBIOS</Label>
-                        <Input
-                          value={org.netbios || org.sigla}
-                          onChange={(e) => setOrg({ ...org, netbios: e.target.value.toUpperCase() })}
-                          placeholder="GAPSP"
-                          className="font-mono"
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label>REALM</Label>
-                        <Input
-                          value={org.realm || org.sigla.toUpperCase() + ".INTRAER"}
-                          onChange={(e) => setOrg({ ...org, realm: e.target.value.toUpperCase() })}
-                          placeholder="GAPSP.INTRAER"
-                          className="font-mono"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Domain Controllers */}
-                <div>
-                  <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
-                    <Server className="size-4" /> Domain Controllers
-                  </h3>
-                  <div className="grid gap-3">
-                    <div className="grid grid-cols-3 gap-3">
-                      <div className="space-y-1.5">
-                        <Label>DC Primario IP *</Label>
-                        <Input
-                          value={org.dcPrimaryIp}
-                          onChange={(e) => setOrg({ ...org, dcPrimaryIp: e.target.value })}
-                          placeholder="10.1.1.10"
-                          className="font-mono"
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label>DC Secundario IP</Label>
-                        <Input
-                          value={org.dcSecondaryIp}
-                          onChange={(e) => setOrg({ ...org, dcSecondaryIp: e.target.value })}
-                          placeholder="10.1.1.11"
-                          className="font-mono"
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label>DC FQDN</Label>
-                        <Input
-                          value={org.dcFqdn}
-                          onChange={(e) => setOrg({ ...org, dcFqdn: e.target.value })}
-                          placeholder="dc01.gapsp.intraer"
-                          className="font-mono"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex gap-3">
-                  <Button variant="outline" onClick={prevStep}>Voltar</Button>
+                <div className="flex gap-3 pt-2">
+                  <Button variant="outline" onClick={prevStep}>
+                    <ArrowLeft className="size-4 mr-1" /> Voltar
+                  </Button>
                   <Button className="flex-1" onClick={() => validateStep2() && nextStep()}>
                     Proximo <ChevronRight className="size-4" />
                   </Button>
@@ -499,50 +358,146 @@ function SetupPage() {
             </Card>
           )}
 
-          {/* STEP 3: Network */}
+          {/* STEP 3: Organization */}
           {step === 3 && (
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Network className="size-5 text-primary" /> Rede e Servicos
+                  <Building2 className="size-5 text-primary" /> Organizacao Raiz
                 </CardTitle>
                 <CardDescription>
-                  Configure DNS, NTP, Proxy e autenticacao.
+                  Configure a primeira organizacao (OM). Todos os dados do sistema pertencem a uma organizacao.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
+                {/* Identity */}
+                <div className="border-b pb-4">
+                  <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                    <Building2 className="size-4" /> Identidade
+                  </h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label>Sigla *</Label>
+                      <Input
+                        value={org.sigla}
+                        onChange={(e) => setOrg({ ...org, sigla: e.target.value.toUpperCase() })}
+                        placeholder="COMARA"
+                        className="font-mono"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Nome completo *</Label>
+                      <Input
+                        value={org.nome}
+                        onChange={(e) => setOrg({ ...org, nome: e.target.value })}
+                        placeholder="Comando de Apoio Regional de Aeronautica"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Domain */}
+                <div className="border-b pb-4">
+                  <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                    <Globe className="size-4" /> Dominio Active Directory
+                  </h3>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="space-y-1.5">
+                      <Label>FQDN *</Label>
+                      <Input
+                        value={org.fqdn}
+                        onChange={(e) => setOrg({ ...org, fqdn: e.target.value.toLowerCase() })}
+                        placeholder="comara.intraer"
+                        className="font-mono"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>NETBIOS</Label>
+                      <Input
+                        value={org.netbios}
+                        onChange={(e) => setOrg({ ...org, netbios: e.target.value.toUpperCase() })}
+                        placeholder={org.sigla}
+                        className="font-mono"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Realm (Kerberos)</Label>
+                      <Input
+                        value={org.realm}
+                        onChange={(e) => setOrg({ ...org, realm: e.target.value.toUpperCase() })}
+                        placeholder={org.sigla ? `${org.sigla.toUpperCase()}.INTRAER` : ""}
+                        className="font-mono"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Domain Controllers */}
+                <div className="border-b pb-4">
+                  <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                    <Server className="size-4" /> Domain Controllers
+                  </h3>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="space-y-1.5">
+                      <Label>DC Primario IP *</Label>
+                      <Input
+                        value={org.dcPrimaryIp}
+                        onChange={(e) => setOrg({ ...org, dcPrimaryIp: e.target.value })}
+                        placeholder="10.1.1.10"
+                        className="font-mono"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>DC Secundario IP</Label>
+                      <Input
+                        value={org.dcSecondaryIp}
+                        onChange={(e) => setOrg({ ...org, dcSecondaryIp: e.target.value })}
+                        placeholder="10.1.1.11"
+                        className="font-mono"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>DC FQDN *</Label>
+                      <Input
+                        value={org.dcFqdn}
+                        onChange={(e) => setOrg({ ...org, dcFqdn: e.target.value.toLowerCase() })}
+                        placeholder="dc01.comara.intraer"
+                        className="font-mono"
+                      />
+                    </div>
+                  </div>
+                </div>
+
                 {/* DNS */}
                 <div className="border-b pb-4">
                   <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
-                    <Globe className="size-4" /> DNS
+                    <Network className="size-4" /> DNS
                   </h3>
-                  <div className="grid gap-3">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1.5">
-                        <Label>DNS Primario *</Label>
-                        <Input
-                          value={network.dnsPrimary}
-                          onChange={(e) => setNetwork({ ...network, dnsPrimary: e.target.value })}
-                          placeholder={org.dcPrimaryIp || "8.8.8.8"}
-                          className="font-mono"
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label>DNS Secundario</Label>
-                        <Input
-                          value={network.dnsSecondary}
-                          onChange={(e) => setNetwork({ ...network, dnsSecondary: e.target.value })}
-                          placeholder={org.dcSecondaryIp || "8.8.4.4"}
-                          className="font-mono"
-                        />
-                      </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label>DNS Primario *</Label>
+                      <Input
+                        value={org.dnsPrimary}
+                        onChange={(e) => setOrg({ ...org, dnsPrimary: e.target.value })}
+                        placeholder={org.dcPrimaryIp || "10.1.1.10"}
+                        className="font-mono"
+                      />
                     </div>
                     <div className="space-y-1.5">
+                      <Label>DNS Secundario</Label>
+                      <Input
+                        value={org.dnsSecondary}
+                        onChange={(e) => setOrg({ ...org, dnsSecondary: e.target.value })}
+                        placeholder={org.dcSecondaryIp || "8.8.4.4"}
+                        className="font-mono"
+                      />
+                    </div>
+                    <div className="col-span-2 space-y-1.5">
                       <Label>Search Domains (separados por virgula)</Label>
                       <Input
-                        value={network.searchDomains}
-                        onChange={(e) => setNetwork({ ...network, searchDomains: e.target.value })}
-                        placeholder={org.fqdn || "gapsp.intraer"}
+                        value={org.searchDomains}
+                        onChange={(e) => setOrg({ ...org, searchDomains: e.target.value })}
+                        placeholder={org.fqdn || "comara.intraer, intraer"}
                         className="font-mono"
                       />
                     </div>
@@ -554,26 +509,24 @@ function SetupPage() {
                   <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
                     <Clock className="size-4" /> NTP e Timezone
                   </h3>
-                  <div className="grid gap-3">
+                  <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1.5">
                       <Label>Servidores NTP (separados por virgula)</Label>
                       <Input
-                        value={network.ntpServers}
-                        onChange={(e) => setNetwork({ ...network, ntpServers: e.target.value })}
+                        value={org.ntpServers}
+                        onChange={(e) => setOrg({ ...org, ntpServers: e.target.value })}
                         placeholder="pool.ntp.org, ntp.ubuntu.com"
                         className="font-mono"
                       />
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1.5">
-                        <Label>Timezone</Label>
-                        <Input
-                          value={network.timezone}
-                          onChange={(e) => setNetwork({ ...network, timezone: e.target.value })}
-                          placeholder="America/Sao_Paulo"
-                          className="font-mono"
-                        />
-                      </div>
+                    <div className="space-y-1.5">
+                      <Label>Timezone</Label>
+                      <Input
+                        value={org.timezone}
+                        onChange={(e) => setOrg({ ...org, timezone: e.target.value })}
+                        placeholder="America/Sao_Paulo"
+                        className="font-mono"
+                      />
                     </div>
                   </div>
                 </div>
@@ -581,33 +534,31 @@ function SetupPage() {
                 {/* Proxy */}
                 <div className="border-b pb-4">
                   <h3 className="text-sm font-semibold mb-3">Proxy (deixe em branco se nao houver)</h3>
-                  <div className="grid gap-3">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1.5">
-                        <Label>HTTP Proxy</Label>
-                        <Input
-                          value={network.httpProxy}
-                          onChange={(e) => setNetwork({ ...network, httpProxy: e.target.value })}
-                          placeholder="10.108.88.4:8080"
-                          className="font-mono"
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label>HTTPS Proxy</Label>
-                        <Input
-                          value={network.httpsProxy}
-                          onChange={(e) => setNetwork({ ...network, httpsProxy: e.target.value })}
-                          placeholder="10.108.88.4:8080"
-                          className="font-mono"
-                        />
-                      </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label>HTTP Proxy</Label>
+                      <Input
+                        value={org.httpProxy}
+                        onChange={(e) => setOrg({ ...org, httpProxy: e.target.value })}
+                        placeholder="10.108.88.4:8080"
+                        className="font-mono"
+                      />
                     </div>
                     <div className="space-y-1.5">
+                      <Label>HTTPS Proxy</Label>
+                      <Input
+                        value={org.httpsProxy}
+                        onChange={(e) => setOrg({ ...org, httpsProxy: e.target.value })}
+                        placeholder="10.108.88.4:8080"
+                        className="font-mono"
+                      />
+                    </div>
+                    <div className="col-span-2 space-y-1.5">
                       <Label>No Proxy (separados por virgula)</Label>
                       <Input
-                        value={network.noProxy}
-                        onChange={(e) => setNetwork({ ...network, noProxy: e.target.value })}
-                        placeholder="localhost,127.0.0.1,10.0.0.0/8"
+                        value={org.noProxy}
+                        onChange={(e) => setOrg({ ...org, noProxy: e.target.value })}
+                        placeholder="localhost, 127.0.0.1, 10.0.0.0/8, *.intraer"
                         className="font-mono"
                       />
                     </div>
@@ -616,17 +567,17 @@ function SetupPage() {
 
                 {/* Auth */}
                 <div className="border-b pb-4">
-                  <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
-                    <Settings2 className="size-4" /> Autenticacao
-                  </h3>
+                  <h3 className="text-sm font-semibold mb-3">Autenticacao</h3>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1.5">
                       <Label>Backend</Label>
                       <Select
-                        value={network.authBackend}
-                        onValueChange={(v) => setNetwork({ ...network, authBackend: v })}
+                        value={org.authBackend}
+                        onValueChange={(v) => setOrg({ ...org, authBackend: v as "sssd" | "winbind" })}
                       >
-                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="sssd">SSSD</SelectItem>
                           <SelectItem value="winbind">Winbind</SelectItem>
@@ -636,12 +587,14 @@ function SetupPage() {
                     <div className="space-y-1.5">
                       <Label>Metodo</Label>
                       <Select
-                        value={network.authMethod}
-                        onValueChange={(v) => setNetwork({ ...network, authMethod: v })}
+                        value={org.authMethod}
+                        onValueChange={(v) => setOrg({ ...org, authMethod: v as "ads" | "ldap" })}
                       >
-                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="ads">ADS</SelectItem>
+                          <SelectItem value="ads">ADS (Active Directory)</SelectItem>
                           <SelectItem value="ldap">LDAP</SelectItem>
                         </SelectContent>
                       </Select>
@@ -658,128 +611,20 @@ function SetupPage() {
                     <div className="space-y-1.5">
                       <Label>Servidor CUPS</Label>
                       <Input
-                        value={network.printServer}
-                        onChange={(e) => setNetwork({ ...network, printServer: e.target.value })}
-                        placeholder="cups.gapsp.intraer"
+                        value={org.printServer}
+                        onChange={(e) => setOrg({ ...org, printServer: e.target.value })}
+                        placeholder="cups.comara.intraer"
                         className="font-mono"
                       />
                     </div>
                     <div className="space-y-1.5">
                       <Label>Impressora Padrao</Label>
                       <Input
-                        value={network.defaultPrinter}
-                        onChange={(e) => setNetwork({ ...network, defaultPrinter: e.target.value })}
+                        value={org.defaultPrinter}
+                        onChange={(e) => setOrg({ ...org, defaultPrinter: e.target.value })}
                         placeholder="HP_LaserJet"
                         className="font-mono"
                       />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex gap-3">
-                  <Button variant="outline" onClick={prevStep}>Voltar</Button>
-                  <Button className="flex-1" onClick={() => validateStep3() && nextStep()}>
-                    Proximo <ChevronRight className="size-4" />
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* STEP 4: Branding */}
-          {step === 4 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Palette className="size-5 text-primary" /> Personalizacao
-                </CardTitle>
-                <CardDescription>
-                  Configure identidade visual e perfil de deployment.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                {/* Branding */}
-                <div className="border-b pb-4">
-                  <h3 className="text-sm font-semibold mb-3">Identidade Visual</h3>
-                  <div className="grid gap-3">
-                    <div className="space-y-1.5">
-                      <Label>Nome para Exibicao</Label>
-                      <Input
-                        value={branding.displayName}
-                        onChange={(e) => setBranding({ ...branding, displayName: e.target.value })}
-                        placeholder={org.nome}
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1.5">
-                        <Label>URL Wallpaper</Label>
-                        <Input
-                          value={branding.wallpaperUrl}
-                          onChange={(e) => setBranding({ ...branding, wallpaperUrl: e.target.value })}
-                          placeholder="https://..."
-                          className="font-mono text-xs"
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label>URL Wallpaper Login</Label>
-                        <Input
-                          value={branding.wallpaperLogin}
-                          onChange={(e) => setBranding({ ...branding, wallpaperLogin: e.target.value })}
-                          placeholder="https://..."
-                          className="font-mono text-xs"
-                        />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1.5">
-                        <Label>URL Logo</Label>
-                        <Input
-                          value={branding.logoUrl}
-                          onChange={(e) => setBranding({ ...branding, logoUrl: e.target.value })}
-                          placeholder="https://..."
-                          className="font-mono text-xs"
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label>URL Greeter</Label>
-                        <Input
-                          value={branding.greeterUrl}
-                          onChange={(e) => setBranding({ ...branding, greeterUrl: e.target.value })}
-                          placeholder="https://..."
-                          className="font-mono text-xs"
-                        />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1.5">
-                        <Label>Tema</Label>
-                        <Select
-                          value={branding.theme}
-                          onValueChange={(v) => setBranding({ ...branding, theme: v })}
-                        >
-                          <SelectTrigger><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="Mint-Y-Dark">Mint-Y-Dark</SelectItem>
-                            <SelectItem value="Mint-Y">Mint-Y</SelectItem>
-                            <SelectItem value="Adwaita-dark">Adwaita Dark</SelectItem>
-                            <SelectItem value="Adwaita">Adwaita</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label>Perfil de Deployment</Label>
-                        <Select
-                          value={branding.deployProfile}
-                          onValueChange={(v) => setBranding({ ...branding, deployProfile: v })}
-                        >
-                          <SelectTrigger><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="minimal">Minimal - Essenciais</SelectItem>
-                            <SelectItem value="standard">Standard - Padrao</SelectItem>
-                            <SelectItem value="full">Full - Completo</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
                     </div>
                   </div>
                 </div>
@@ -789,20 +634,22 @@ function SetupPage() {
                   <div className="text-sm font-semibold">Resumo da Configuracao:</div>
                   <div className="grid grid-cols-2 gap-2 text-muted-foreground">
                     <span>Organizacao:</span>
-                    <span className="text-foreground">{org.sigla} - {org.nome}</span>
+                    <span className="text-foreground">
+                      {org.sigla} - {org.nome}
+                    </span>
                     <span>Dominio:</span>
                     <span className="text-foreground">{org.fqdn}</span>
                     <span>DC Primario:</span>
                     <span className="text-foreground">{org.dcPrimaryIp}</span>
                     <span>Admin:</span>
                     <span className="text-foreground">{admin.email}</span>
-                    <span>Perfil:</span>
-                    <span className="text-foreground capitalize">{branding.deployProfile}</span>
                   </div>
                 </div>
 
                 <div className="flex gap-3">
-                  <Button variant="outline" onClick={prevStep}>Voltar</Button>
+                  <Button variant="outline" onClick={prevStep}>
+                    <ArrowLeft className="size-4 mr-1" /> Voltar
+                  </Button>
                   <Button className="flex-1" onClick={submitSetup} disabled={busy}>
                     {busy ? <Loader2 className="size-4 animate-spin mr-2" /> : null}
                     Concluir Configuracao
@@ -812,7 +659,7 @@ function SetupPage() {
             </Card>
           )}
 
-          {/* STEP 5: Complete */}
+          {/* STEP 4: Complete */}
           {step === STEPS.length && (
             <Card>
               <CardContent className="pt-8 pb-6 text-center space-y-5">
@@ -822,15 +669,15 @@ function SetupPage() {
                 <div>
                   <h2 className="text-2xl font-display font-bold">SeederLinux Configurado!</h2>
                   <p className="text-muted-foreground text-sm mt-2">
-                    O sistema esta pronto para uso. Faca login com a conta administrador criada.
+                    O sistema esta pronto para uso. Faça login com a conta administrador criada.
                   </p>
                 </div>
                 <div className="rounded-md bg-muted/40 border p-4 text-xs font-mono text-left space-y-1 text-muted-foreground">
                   <p>Banco de dados inicializado</p>
-                  <p>Administrador criado</p>
+                  <p>Administrador criado: {admin.email}</p>
                   <p>Organizacao configurada: {org.sigla}</p>
-                  <p>12 Scripts CORE carregados</p>
-                  <p>3 Perfis de deployment disponiveis</p>
+                  <p>Variaveis padrao criadas</p>
+                  <p>Branding padrao configurado</p>
                 </div>
                 <Button className="w-full" size="lg" onClick={() => nav({ to: "/painel" })}>
                   Ir para o Painel

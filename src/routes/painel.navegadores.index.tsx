@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useAuth, type AppRole } from "@/lib/auth/AuthProvider";
 import { useOrganizations } from "@/lib/seeder/orgs-api";
@@ -16,7 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Globe, Loader as Loader2, Save, Shield, Eye, X, Plus } from "lucide-react";
+import { Globe, Loader as Loader2, Save, Shield, Eye, X, Plus, Building2 } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/painel/navegadores/")({
@@ -144,6 +144,11 @@ function BrowserPoliciesPage() {
         <p className="text-sm text-muted-foreground">
           Voce precisa ter acesso a uma organizacao para configurar politicas.
         </p>
+        <Link to="/painel/organizacoes" className="inline-block mt-4">
+          <Button variant="outline" size="sm">
+            <Building2 className="size-4 mr-1.5" /> Gerenciar Organizacoes
+          </Button>
+        </Link>
       </div>
     );
   }

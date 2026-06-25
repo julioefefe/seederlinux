@@ -93,7 +93,24 @@ export const setupApi = {
     adminName: string;
     orgName: string;
     orgSigla: string;
-    orgDominio?: string;
+    fqdn?: string;
+    netbios?: string;
+    realm?: string;
+    dcPrimaryIp?: string;
+    dcSecondaryIp?: string;
+    dcFqdn?: string;
+    dnsPrimary?: string;
+    dnsSecondary?: string;
+    searchDomains?: string[];
+    ntpServers?: string[];
+    timezone?: string;
+    httpProxy?: string;
+    httpsProxy?: string;
+    noProxy?: string[];
+    authBackend?: 'sssd' | 'winbind';
+    authMethod?: 'ads' | 'ldap';
+    printServer?: string;
+    defaultPrinter?: string;
   }) =>
     api<{ success: boolean; token: string; user: any; organization: any }>(
       '/api/setup',

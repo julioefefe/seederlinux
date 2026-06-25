@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useAuth, type AppRole } from "@/lib/auth/AuthProvider";
 import { useOrganizations } from "@/lib/seeder/orgs-api";
@@ -15,7 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Printer, Loader as Loader2, Save, Plus, Pencil, Trash2, Check, Server } from "lucide-react";
+import { Printer, Loader as Loader2, Save, Plus, Pencil, Trash2, Check, Server, Building2 } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/painel/impressoras/")({
@@ -149,6 +149,11 @@ function PrintersPage() {
         <p className="text-sm text-muted-foreground">
           Voce precisa ter acesso a uma organizacao para configurar impressoras.
         </p>
+        <Link to="/painel/organizacoes" className="inline-block mt-4">
+          <Button variant="outline" size="sm">
+            <Building2 className="size-4 mr-1.5" /> Gerenciar Organizacoes
+          </Button>
+        </Link>
       </div>
     );
   }

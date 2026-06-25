@@ -21,7 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useUpsertScript } from "@/lib/seeder/scripts-api";
-import { useVariables } from "@/lib/seeder/variables-api";
+import { useVariableCatalog } from "@/lib/seeder/variables-api";
 import { extractUsedVars } from "@/lib/seeder/variables";
 import { lintScript, lintSummary, type LintIssue } from "@/lib/seeder/lint";
 import { logEvent } from "@/lib/seeder/audit";
@@ -49,7 +49,7 @@ interface Props {
 }
 
 export function ScriptFormDialog({ trigger, script }: Props) {
-  const { data: variables = [] } = useVariables();
+  const { data: catalog = [] } = useVariableCatalog();
   const upsert = useUpsertScript();
   const [open, setOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -86,9 +86,11 @@ export function ScriptFormDialog({ trigger, script }: Props) {
 
   // Detecta variáveis usadas + lint em tempo real
   const detected = useMemo(() => extractUsedVars(form.conteudo), [form.conteudo]);
-  const issues: LintIssue[] = useMemo(() => lintScript(form.conteudo, variables), [form.conteudo, variables]);
+  const issues: LintIssue[] = useMemo(() => lintScript(form.conteudo, catalog), [form.conteudo, catalog]);
   const summary = lintSummary(issues);
-  const knownKeys = new Set(variables.map((v) => v.key));
+  const knownKeys = new Set(catalog.map((v: any) => v.key));
+
+  const catalogMap = useMemo(() => new Map(catalog.map((v: any) => [v.key, v])), [catalog]);
 
   const handleUpload = async (file: File) => {
     const text = await file.text();
@@ -252,21 +254,42 @@ export function ScriptFormDialog({ trigger, script }: Props) {
           </div>
 
           {detected.length > 0 && (
-            <div className="rounded-md border bg-muted/30 p-3">
-              <div className="text-xs font-mono uppercase tracking-wide text-muted-foreground mb-2">
+            <div className="rounded-md border bg-muted/30 p-3 space-y-3">
+              <div className="text-xs font-mono uppercase tracking-wide text-muted-foreground">
                 Variáveis detectadas ({detected.length})
               </div>
-              <div className="flex flex-wrap gap-1.5">
-                {detected.map((k) => (
-                  <Badge
-                    key={k}
-                    variant={knownKeys.has(k) ? "secondary" : "destructive"}
-                    className="font-mono text-[10px]"
-                  >
-                    {k}
-                    {!knownKeys.has(k) && " ⚠"}
-                  </Badge>
-                ))}
+              <div className="space-y-2">
+                {detected.map((k) => {
+                  const entry = catalogMap.get(k);
+                  const isKnown = !!entry;
+                  return (
+                    <div key={k} className={`flex items-center gap-3 text-xs p-2 rounded-md ${isKnown ? "bg-background border" : "bg-destructive/5 border border-destructive/20"}`}>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <code className="font-mono font-semibold">{k}</code>
+                          {entry?.label && (
+                            <span className="text-muted-foreground">{entry.label}</span>
+                          )}
+                          {!isKnown && (
+                            <Badge variant="destructive" className="text-[9px] h-4">nao catalogada</Badge>
+                          )}
+                          {entry?.obrigatoria && (
+                            <Badge variant="outline" className="text-[9px] h-4 border-destructive/30 text-destructive">obrigatoria</Badge>
+                          )}
+                        </div>
+                        {entry?.descricao && (
+                          <p className="text-muted-foreground mt-0.5 truncate">{entry.descricao}</p>
+                        )}
+                      </div>
+                      {entry?.tipo && (
+                        <Badge variant="outline" className="text-[9px] font-mono shrink-0">{entry.tipo}</Badge>
+                      )}
+                      {entry?.default && (
+                        <span className="text-muted-foreground font-mono shrink-0">padrao: {entry.default}</span>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

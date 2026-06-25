@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useAuth, type AppRole } from "@/lib/auth/AuthProvider";
 import { useOrganizations } from "@/lib/seeder/orgs-api";
@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Palette, Loader as Loader2, Save, Image, Box, Monitor, Sparkles, Link as LinkIcon } from "lucide-react";
+import { Palette, Loader as Loader2, Save, Image, Box, Monitor, Sparkles, Link as LinkIcon, Building2 } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/painel/branding/")({
@@ -138,6 +138,11 @@ function BrandingPage() {
         <p className="text-sm text-muted-foreground">
           Voce precisa ser <strong>admin GAP</strong> ou <strong>operador OM</strong> de uma organizacao para personalizar.
         </p>
+        <Link to="/painel/organizacoes" className="inline-block mt-4">
+          <Button variant="outline" size="sm">
+            <Building2 className="size-4 mr-1.5" /> Gerenciar Organizacoes
+          </Button>
+        </Link>
       </div>
     );
   }
