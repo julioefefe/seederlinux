@@ -419,6 +419,50 @@ async function buildServer() {
     const data = request.body as any;
     data.sigla = data.sigla.toUpperCase();
     const org = await prisma.organization.create({ data });
+
+    // Cascade: create default variables
+    const defaultVars = [
+      { orgId: org.id, key: 'AD_DOMAIN', value: data.fqdn || '' },
+      { orgId: org.id, key: 'AD_REALM', value: data.realm || (data.sigla + '.INTRAER') },
+      { orgId: org.id, key: 'AD_NETBIOS', value: data.netbios || data.sigla },
+      { orgId: org.id, key: 'AD_DC_PRIMARY', value: data.dcPrimaryIp || '' },
+      { orgId: org.id, key: 'AD_DC_SECONDARY', value: data.dcSecondaryIp || '' },
+      { orgId: org.id, key: 'AD_DC_FQDN', value: data.dcFqdn || '' },
+      { orgId: org.id, key: 'AD_BACKEND', value: data.authBackend || 'sssd' },
+      { orgId: org.id, key: 'AD_METHOD', value: data.authMethod || 'ads' },
+      { orgId: org.id, key: 'DNS_PRIMARY', value: data.dnsPrimary || '8.8.8.8' },
+      { orgId: org.id, key: 'DNS_SECONDARY', value: data.dnsSecondary || '' },
+      { orgId: org.id, key: 'DNS_SEARCH_DOMAINS', value: (data.searchDomains || []).join(',') },
+      { orgId: org.id, key: 'NTP_SERVERS', value: (data.ntpServers || ['pool.ntp.org']).join(',') },
+      { orgId: org.id, key: 'TIMEZONE', value: data.timezone || 'America/Sao_Paulo' },
+      { orgId: org.id, key: 'PROXY_HTTP', value: data.httpProxy || '' },
+      { orgId: org.id, key: 'PROXY_HTTPS', value: data.httpsProxy || '' },
+      { orgId: org.id, key: 'PROXY_FTP', value: data.ftpProxy || '' },
+      { orgId: org.id, key: 'PROXY_NO_PROXY', value: (data.noProxy || ['localhost', '127.0.0.1']).join(',') },
+      { orgId: org.id, key: 'PROXY_ENABLED', value: data.httpProxy ? 'true' : 'false' },
+      { orgId: org.id, key: 'PRINT_SERVER', value: data.printServer || '' },
+      { orgId: org.id, key: 'PRINT_DEFAULT', value: data.defaultPrinter || '' },
+      { orgId: org.id, key: 'BRANDING_NAME', value: data.nome || org.nome },
+      { orgId: org.id, key: 'BRANDING_THEME', value: 'Mint-Y-Dark' },
+      { orgId: org.id, key: 'DEPLOY_PROFILE', value: data.deployProfile || 'standard' },
+      { orgId: org.id, key: 'ORG_NAME', value: org.nome },
+      { orgId: org.id, key: 'ORG_SIGLA', value: org.sigla },
+    ];
+    await prisma.orgVariable.createMany({ data: defaultVars, skipDuplicates: true });
+
+    // Cascade: create branding config
+    await prisma.brandingConfig.create({
+      data: {
+        orgId: org.id,
+        displayName: data.nome || org.nome,
+        wallpaperUrl: null,
+        wallpaperLogin: null,
+        logoUrl: null,
+        greeterUrl: null,
+        theme: 'Mint-Y-Dark',
+      },
+    }).catch(() => {});
+
     await prisma.auditEvent.create({
       data: { atorId: request.user.userId, atorEmail: request.user.email, categoria: 'organizations', acao: 'create', alvo: org.sigla },
     });
