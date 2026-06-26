@@ -163,4 +163,24 @@ export default async function variablesRoutes(app: FastifyInstance) {
 
     return entry;
   });
+
+  // Delete from catalog (admin_gap only)
+  app.delete('/catalog/:key', async (request, reply) => {
+    const user = (request as any).user;
+    if (!isAdminGap(user.roles)) {
+      return reply.code(403).send({ error: 'Forbidden' });
+    }
+    const { key } = request.params as { key: string };
+    await app.prisma.variableCatalog.delete({ where: { key } });
+    await app.prisma.auditEvent.create({
+      data: {
+        atorId: user.userId,
+        atorEmail: user.email,
+        categoria: 'variables',
+        acao: 'catalog_delete',
+        alvo: key,
+      },
+    });
+    return { success: true };
+  });
 }

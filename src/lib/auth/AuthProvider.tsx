@@ -1,6 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { supabase } from "@/lib/supabase";
-import { authApi } from "@/lib/api/client";
+import { authApi, setAuthToken, clearAuthToken } from "@/lib/api/client";
 
 export type AppRole = "admin_gap" | "operador_om" | "auditor";
 
@@ -40,11 +39,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     async function init() {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session && mounted) {
-          const userData = await authApi.me();
-          if (mounted) setUser(userData);
-        }
+        const userData = await authApi.me();
+        if (mounted) setUser(userData);
       } catch {
         if (mounted) setUser(null);
       } finally {
@@ -57,31 +53,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     init();
 
-    const { data: sub } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (session) {
-        try {
-          const userData = await authApi.me();
-          if (mounted) setUser(userData);
-        } catch {
-          if (mounted) setUser(null);
-        }
-      } else {
-        if (mounted) setUser(null);
-      }
-      if (mounted) {
-        setLoading(false);
-        setInitialized(true);
-      }
-    });
-
     return () => {
       mounted = false;
-      sub.subscription.unsubscribe();
     };
   }, []);
 
   async function login(email: string, password: string) {
-    await authApi.login(email, password);
+    const result = await authApi.login(email, password);
+    setAuthToken(result.token);
     const userData = await authApi.me();
     setUser(userData);
   }
@@ -92,6 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       // Ignore
     }
+    clearAuthToken();
     setUser(null);
     window.location.href = "/login";
   }

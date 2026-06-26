@@ -887,6 +887,181 @@ async function buildServer() {
     };
   });
 
+  // ============================================================================
+  // BROWSER POLICIES ROUTES
+  // ============================================================================
+  app.get('/api/browser-policies/:orgId', async (request: any, reply) => {
+    const org = await prisma.organization.findUnique({ where: { id: request.params.orgId } });
+    if (!org) return reply.code(404).send({ error: 'Not found' });
+    if (!canAccessOrg(request.user.roles, org.sigla)) return reply.code(403).send({ error: 'Forbidden' });
+    return prisma.browserPolicy.findMany({ where: { orgId: request.params.orgId }, include: { bookmarks: true } });
+  });
+
+  app.post('/api/browser-policies', async (request: any, reply) => {
+    const { orgId, browser, homepage, bookmarksEnabled, proxyEnabled, certificatesEnabled, telemetryDisabled, updatesDisabled } = request.body as any;
+    const org = await prisma.organization.findUnique({ where: { id: orgId } });
+    if (!org) return reply.code(404).send({ error: 'Not found' });
+    if (!isAdminGap(request.user.roles) && !request.user.roles.some((r: any) => r.role === 'operador_om' && r.orgSigla === org.sigla)) {
+      return reply.code(403).send({ error: 'Forbidden' });
+    }
+    const existing = await prisma.browserPolicy.findFirst({ where: { orgId, browser } });
+    let result;
+    if (existing) {
+      result = await prisma.browserPolicy.update({ where: { id: existing.id }, data: { homepage, bookmarksEnabled, proxyEnabled, certificatesEnabled, telemetryDisabled, updatesDisabled } });
+    } else {
+      result = await prisma.browserPolicy.create({ data: { orgId, browser, homepage, bookmarksEnabled, proxyEnabled, certificatesEnabled, telemetryDisabled, updatesDisabled } });
+    }
+    await prisma.auditEvent.create({ data: { atorId: request.user.userId, atorEmail: request.user.email, categoria: 'browser_policies', acao: 'upsert', alvo: `${org.sigla}:${browser}` } });
+    return result;
+  });
+
+  // ============================================================================
+  // PRINTER PROFILES ROUTES
+  // ============================================================================
+  app.get('/api/printer-profiles/:orgId', async (request: any, reply) => {
+    const org = await prisma.organization.findUnique({ where: { id: request.params.orgId } });
+    if (!org) return reply.code(404).send({ error: 'Not found' });
+    if (!canAccessOrg(request.user.roles, org.sigla)) return reply.code(403).send({ error: 'Forbidden' });
+    return prisma.printerProfile.findMany({ where: { orgId: request.params.orgId }, include: { queues: true } });
+  });
+
+  app.post('/api/printer-profiles', async (request: any, reply) => {
+    const { orgId, name, cupsServer, defaultQueue } = request.body as any;
+    const org = await prisma.organization.findUnique({ where: { id: orgId } });
+    if (!org) return reply.code(404).send({ error: 'Not found' });
+    if (!isAdminGap(request.user.roles) && !request.user.roles.some((r: any) => r.role === 'operador_om' && r.orgSigla === org.sigla)) {
+      return reply.code(403).send({ error: 'Forbidden' });
+    }
+    const existing = await prisma.printerProfile.findFirst({ where: { orgId } });
+    let result;
+    if (existing) {
+      result = await prisma.printerProfile.update({ where: { id: existing.id }, data: { name, cupsServer, defaultQueue } });
+    } else {
+      result = await prisma.printerProfile.create({ data: { orgId, name, cupsServer, defaultQueue } });
+    }
+    await prisma.auditEvent.create({ data: { atorId: request.user.userId, atorEmail: request.user.email, categoria: 'printer_profiles', acao: 'upsert', alvo: org.sigla } });
+    return result;
+  });
+
+  // ============================================================================
+  // DESKTOP POLICIES ROUTES (stored as org variables)
+  // ============================================================================
+  app.get('/api/desktop-policies/:orgId', async (request: any, reply) => {
+    const org = await prisma.organization.findUnique({ where: { id: request.params.orgId } });
+    if (!org) return reply.code(404).send({ error: 'Not found' });
+    if (!canAccessOrg(request.user.roles, org.sigla)) return reply.code(403).send({ error: 'Forbidden' });
+    const vars = await prisma.orgVariable.findMany({ where: { orgId: request.params.orgId, key: { startsWith: 'DESKTOP_' } } });
+    const config: Record<string, any> = {};
+    for (const v of vars) {
+      if (v.key.startsWith('DESKTOP_')) {
+        const field = v.key.replace('DESKTOP_', '').toLowerCase();
+        if (['soundsenabled', 'notificationsenabled'].includes(field)) {
+          config[field] = v.value === 'true';
+        } else if (['screensavertimeout', 'powertimeout'].includes(field)) {
+          config[field] = parseInt(v.value) || 0;
+        } else {
+          config[field] = v.value;
+        }
+      }
+    }
+    return { orgId: request.params.orgId, ...config };
+  });
+
+  app.post('/api/desktop-policies', async (request: any, reply) => {
+    const { orgId, theme, iconTheme, cursorTheme, font, soundsEnabled, soundScheme, notificationsEnabled, screensaverTimeout, powerTimeout } = request.body as any;
+    const org = await prisma.organization.findUnique({ where: { id: orgId } });
+    if (!org) return reply.code(404).send({ error: 'Not found' });
+    if (!isAdminGap(request.user.roles) && !request.user.roles.some((r: any) => r.role === 'operador_om' && r.orgSigla === org.sigla)) {
+      return reply.code(403).send({ error: 'Forbidden' });
+    }
+    const entries = [
+      { orgId, key: 'DESKTOP_THEME', value: theme || 'Mint-Y-Dark' },
+      { orgId, key: 'DESKTOP_ICON_THEME', value: iconTheme || 'Mint-Y' },
+      { orgId, key: 'DESKTOP_CURSOR_THEME', value: cursorTheme || 'default' },
+      { orgId, key: 'DESKTOP_FONT', value: font || 'Cantarell 11' },
+      { orgId, key: 'DESKTOP_SOUNDS_ENABLED', value: String(soundsEnabled ?? true) },
+      { orgId, key: 'DESKTOP_SOUND_SCHEME', value: soundScheme || 'freedesktop' },
+      { orgId, key: 'DESKTOP_NOTIFICATIONS_ENABLED', value: String(notificationsEnabled ?? true) },
+      { orgId, key: 'DESKTOP_SCREENSAVER_TIMEOUT', value: String(screensaverTimeout ?? 300) },
+      { orgId, key: 'DESKTOP_POWER_TIMEOUT', value: String(powerTimeout ?? 600) },
+    ];
+    for (const entry of entries) {
+      await prisma.orgVariable.upsert({ where: { orgId_key: { orgId: entry.orgId, key: entry.key } }, create: entry, update: { value: entry.value } });
+    }
+    await prisma.auditEvent.create({ data: { atorId: request.user.userId, atorEmail: request.user.email, categoria: 'desktop_policies', acao: 'upsert', alvo: org.sigla } });
+    return { success: true };
+  });
+
+  // ============================================================================
+  // OFFLINE AUTH CONFIG ROUTES (stored as org variables)
+  // ============================================================================
+  app.get('/api/offline-auth/:orgId', async (request: any, reply) => {
+    const org = await prisma.organization.findUnique({ where: { id: request.params.orgId } });
+    if (!org) return reply.code(404).send({ error: 'Not found' });
+    if (!canAccessOrg(request.user.roles, org.sigla)) return reply.code(403).send({ error: 'Forbidden' });
+    const vars = await prisma.orgVariable.findMany({ where: { orgId: request.params.orgId, key: { startsWith: 'OFFLINE_AUTH_' } } });
+    const config: Record<string, any> = { orgId: request.params.orgId, enabled: false, cacheCredentials: false, offlineDays: 7, maxOfflineLogins: 10, autoSync: true, sssdConfig: '' };
+    for (const v of vars) {
+      const field = v.key.replace('OFFLINE_AUTH_', '').toLowerCase();
+      if (['enabled', 'cachecredentials', 'autosync'].includes(field)) {
+        config[field === 'cachecredentials' ? 'cacheCredentials' : field === 'autosync' ? 'autoSync' : field] = v.value === 'true';
+      } else if (['offlinedays', 'maxofflinelogins'].includes(field)) {
+        config[field === 'offlinedays' ? 'offlineDays' : 'maxOfflineLogins'] = parseInt(v.value) || 0;
+      } else if (field === 'sssdconfig') {
+        config.sssdConfig = v.value;
+      }
+    }
+    return config;
+  });
+
+  app.post('/api/offline-auth', async (request: any, reply) => {
+    const { orgId, enabled, cacheCredentials, offlineDays, maxOfflineLogins, autoSync, sssdConfig, adDomain } = request.body as any;
+    const org = await prisma.organization.findUnique({ where: { id: orgId } });
+    if (!org) return reply.code(404).send({ error: 'Not found' });
+    if (!isAdminGap(request.user.roles) && !request.user.roles.some((r: any) => r.role === 'operador_om' && r.orgSigla === org.sigla)) {
+      return reply.code(403).send({ error: 'Forbidden' });
+    }
+    const entries = [
+      { orgId, key: 'OFFLINE_AUTH_ENABLED', value: String(enabled ?? false) },
+      { orgId, key: 'OFFLINE_AUTH_CACHE_CREDENTIALS', value: String(cacheCredentials ?? false) },
+      { orgId, key: 'OFFLINE_AUTH_OFFLINE_DAYS', value: String(offlineDays ?? 7) },
+      { orgId, key: 'OFFLINE_AUTH_MAX_OFFLINE_LOGINS', value: String(maxOfflineLogins ?? 10) },
+      { orgId, key: 'OFFLINE_AUTH_AUTO_SYNC', value: String(autoSync ?? true) },
+      { orgId, key: 'OFFLINE_AUTH_SSSD_CONFIG', value: sssdConfig || '' },
+    ];
+    for (const entry of entries) {
+      await prisma.orgVariable.upsert({ where: { orgId_key: { orgId: entry.orgId, key: entry.key } }, create: entry, update: { value: entry.value } });
+    }
+    await prisma.auditEvent.create({ data: { atorId: request.user.userId, atorEmail: request.user.email, categoria: 'offline_auth', acao: 'upsert', alvo: org.sigla } });
+    return { success: true };
+  });
+
+  // ============================================================================
+  // PROFILE IMPORT ROUTE (SeederHub)
+  // ============================================================================
+  app.post('/api/profiles/:id/import', async (request: any, reply) => {
+    const original = await prisma.seederProfile.findUnique({ where: { id: request.params.id } });
+    if (!original) return reply.code(404).send({ error: 'Not found' });
+    const { targetOrgSigla } = request.body as any;
+    let orgId: string | null = null;
+    if (targetOrgSigla) {
+      const org = await prisma.organization.findUnique({ where: { sigla: targetOrgSigla } });
+      if (org) orgId = org.id;
+    }
+    const copy = await prisma.seederProfile.create({
+      data: {
+        nome: original.nome + ' (importado)',
+        descricao: original.descricao,
+        scriptIds: original.scriptIds,
+        organizacaoOrigem: targetOrgSigla || null,
+        publico: false,
+        profileType: original.profileType,
+      },
+    });
+    await prisma.auditEvent.create({ data: { atorId: request.user.userId, atorEmail: request.user.email, categoria: 'profiles', acao: 'import', alvo: original.nome, detalhes: `to ${targetOrgSigla || 'local'}` } });
+    return copy;
+  });
+
   // Graceful shutdown
   process.on('SIGINT', async () => { await prisma.$disconnect(); await app.close(); process.exit(0); });
   process.on('SIGTERM', async () => { await prisma.$disconnect(); await app.close(); process.exit(0); });

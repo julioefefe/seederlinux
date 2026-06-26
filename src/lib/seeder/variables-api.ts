@@ -68,9 +68,8 @@ export function useDeleteVariable() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (key: string) => {
-      const { supabase } = await import("@/lib/supabase");
-      const { error } = await supabase.from("variable_catalog").delete().eq("key", key);
-      if (error) throw new Error(error.message);
+      const { api } = await import("@/lib/api/client");
+      await api(`/api/variables/catalog/${key}`, { method: 'DELETE' });
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: VARS_QK }),
   });

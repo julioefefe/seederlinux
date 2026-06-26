@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useState, useEffect, useRef } from "react";
-import { setupApi } from "@/lib/api/client";
+import { setupApi, setAuthToken } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -197,6 +197,7 @@ function SetupPage() {
       });
 
       toast.success("Sistema configurado com sucesso!");
+      if (result.token) setAuthToken(result.token);
       setupCompleteRef.current = true;
       setStep(STEPS.length);
     } catch (e: any) {
