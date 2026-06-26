@@ -16,8 +16,6 @@ export function useRunsStats(days = 30) {
   return useQuery({
     queryKey: ["runs_stats", days],
     queryFn: async (): Promise<Map<string, OrgRunStats>> => {
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-
       // Get all stations with organization info
       const stations: any[] = await stationsApi.list();
 

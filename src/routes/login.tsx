@@ -58,7 +58,7 @@ function LoginPage() {
           <img src="/seederlinux-logo.png" alt="SeederLinux" className="size-12 object-contain" />
           <div>
             <div className="font-display font-bold text-lg">SeederLinux</div>
-            <div className="text-xs font-mono text-muted-foreground">Implementando Linux na FAB</div>
+            <div className="text-xs font-mono text-muted-foreground">built for institutions · open by design</div>
           </div>
         </div>
         <div className="space-y-3 max-w-md">
@@ -73,7 +73,7 @@ function LoginPage() {
           </p>
         </div>
         <div className="text-xs text-muted-foreground font-mono">
-          v2.0 - uso institucional - <Link to="/" className="underline">voltar ao site</Link>
+          v3.0 - uso institucional - <Link to="/" className="underline">voltar ao site</Link>
         </div>
       </div>
 

@@ -12,11 +12,15 @@ export interface Station {
   ip: string;
   distro: Distro;
   desktop: DesktopEnv;
+  kernelVersion?: string;
   serialAplicado: number;
   ultimoCheckin: string;
   status: StationStatus;
   perfilAtivo?: string;
   usuario?: string;
+  assetTag?: string;
+  serialNumber?: string;
+  agentVersion?: string;
   organization?: { sigla: string; nome: string };
 }
 
@@ -28,11 +32,15 @@ function apiToStation(r: any): Station {
     ip: r.ip,
     distro: r.distro as Distro,
     desktop: r.desktop as DesktopEnv,
+    kernelVersion: r.kernelVersion ?? r.kernel_version ?? undefined,
     serialAplicado: Number(r.serialAplicado ?? r.serial_aplicado ?? 0),
     ultimoCheckin: r.ultimoCheckin ?? r.ultimo_checkin ?? "",
     status: (r.status as StationStatus) ?? "nunca",
     perfilAtivo: r.perfilAtivo ?? r.perfil_ativo ?? undefined,
     usuario: r.usuario ?? undefined,
+    assetTag: r.assetTag ?? r.asset_tag ?? undefined,
+    serialNumber: r.serialNumber ?? r.serial_number ?? undefined,
+    agentVersion: r.agentVersion ?? r.agent_version ?? undefined,
     organization: r.organization,
   };
 }
@@ -99,16 +107,11 @@ export function useStationCheckin() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: { id: string; serialAplicado: number; status?: StationStatus }) => {
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-      const res = await fetch(`${apiUrl}/api/stations/${input.id}/checkin`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          serialAplicado: input.serialAplicado,
-          status: input.status ?? 'ok',
-        }),
+      await stationsApi.update(input.id, {
+        serialAplicado: input.serialAplicado,
+        status: input.status ?? "ok",
+        ultimoCheckin: new Date().toISOString(),
       });
-      if (!res.ok) throw new Error('Checkin failed');
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: STATIONS_QK }),
   });

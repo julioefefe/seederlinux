@@ -10,6 +10,8 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Network, Globe, Share2, Bell, ShieldCheck, Search, Download, Building2 } from "lucide-react";
 import { toast } from "sonner";
+import { profilesApi } from "@/lib/api/client";
+import { useQueryClient } from "@tanstack/react-query";
 
 export const Route = createFileRoute("/painel/hub/")({
   head: () => ({ meta: [{ title: "SeederHub · SeederLinux" }] }),
@@ -21,6 +23,7 @@ function HubPage() {
   const { data: scripts = [] } = useScripts();
   const { data: organizations = [] } = useOrganizations();
   const upsert = useUpsertProfile();
+  const qc = useQueryClient();
   const [conectado, setConectado] = useState(false);
   const [busca, setBusca] = useState("");
 
@@ -41,17 +44,10 @@ function HubPage() {
   const importarPerfil = async (perfilId: string) => {
     const original = profiles.find((p) => p.id === perfilId);
     if (!original) return;
-    const novo = {
-      ...original,
-      id: `${original.id}-imp-${Date.now()}`,
-      nome: `${original.nome} (importado)`,
-      organizacaoOrigem: null,
-      publico: false,
-      criadoEm: new Date().toISOString().slice(0, 10),
-    };
     try {
-      await upsert.mutateAsync(novo);
-      toast.success(`Perfil "${original.nome}" importado para sua instância`);
+      await profilesApi.importProfile(perfilId, organizations[0]?.sigla ?? "");
+      qc.invalidateQueries({ queryKey: ["profiles_seeder"] });
+      toast.success(`Perfil "${original.nome}" importado para sua instancia`);
     } catch (e) {
       toast.error(`Falha: ${(e as Error).message}`);
     }

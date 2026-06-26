@@ -19,11 +19,8 @@ export function useStationTokens(stationId: string) {
     queryKey: stationTokensQK(stationId),
     enabled: !!stationId,
     queryFn: async (): Promise<StationToken[]> => {
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-      const res = await fetch(`${apiUrl}/api/stations/${stationId}/tokens`);
-      if (!res.ok) throw new Error('Failed to fetch tokens');
-      const data = await res.json();
-      return (data ?? []).map((r: any) => ({
+      const data = await stationsApi.listTokens(stationId);
+      return data.map((r: any) => ({
         id: r.id,
         stationId: r.stationId ?? r.station_id,
         label: r.label,

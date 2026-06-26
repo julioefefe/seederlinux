@@ -10,7 +10,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Monitor, Search, AlertTriangle, CheckCircle2, Clock, MinusCircle, Loader2, Plus, Pencil, Trash2, KeyRound, History } from "lucide-react";
+import { Monitor, Search, AlertTriangle, CheckCircle2, Clock, MinusCircle, Loader2, Plus, Pencil, Trash2, KeyRound, History, Info } from "lucide-react";
 import { useStations, useDeleteStation, type StationStatus } from "@/lib/seeder/stations";
 import { useOrganizations } from "@/lib/seeder/orgs-api";
 import { useAuth } from "@/lib/auth/AuthProvider";
@@ -84,6 +84,15 @@ function EstacoesPage() {
         )}
       </div>
 
+      <div className="rounded-md border border-primary/30 bg-primary/5 p-4 flex items-start gap-3">
+        <Info className="size-5 text-primary shrink-0 mt-0.5" />
+        <div className="text-sm">
+          <strong>Fluxo de cadastro:</strong> As estações são criadas automaticamente quando o <strong>SeederAgent</strong> faz o primeiro check-in.
+          Use o botão "Nova estação" apenas para registro manual. O fluxo recomendado é: instalar o SeederAgent na estação →
+          gerar token de check-in → o agente reporta e a estação aparece no inventário.
+        </div>
+      </div>
+
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         <Stat label="Total" value={stats.total} />
         <Stat label="OK" value={stats.ok} tone="ok" />
@@ -153,7 +162,11 @@ function EstacoesPage() {
                   const Icon = meta.Icon;
                   return (
                     <TableRow key={s.id}>
-                      <TableCell className="font-mono text-xs">{s.hostname}</TableCell>
+                      <TableCell>
+                        <Link to="/painel/estacoes/$stationId" params={{ stationId: s.id }} className="font-mono text-xs text-primary hover:underline">
+                          {s.hostname}
+                        </Link>
+                      </TableCell>
                       <TableCell>
                         {org ? (
                           <Link to="/painel/organizacoes/$orgId" params={{ orgId: org.id }} className="text-primary hover:underline">

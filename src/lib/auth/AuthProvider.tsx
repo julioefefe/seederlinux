@@ -1,10 +1,6 @@
-import { createContext, useContext, useEffect, useState, useRef, type ReactNode } from "react";
-import {
-  authApi,
-  getAuthToken,
-  setAuthToken,
-  clearAuthToken,
-} from "@/lib/api/client";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { supabase } from "@/lib/supabase";
+import { authApi } from "@/lib/api/client";
 
 export type AppRole = "admin_gap" | "operador_om" | "auditor";
 
@@ -18,6 +14,7 @@ interface User {
   id: string;
   email: string;
   displayName: string | null;
+  blocked: boolean;
   roles: UserRole[];
 }
 
@@ -37,47 +34,64 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [initialized, setInitialized] = useState(false);
-  const authCheckRef = useRef(false);
 
   useEffect(() => {
-    // Prevent double execution in React StrictMode
-    if (authCheckRef.current) return;
-    authCheckRef.current = true;
+    let mounted = true;
 
-    const token = getAuthToken();
-    if (token) {
-      authApi
-        .me()
-        .then((userData: any) => {
-          setUser(userData);
-        })
-        .catch(() => {
-          clearAuthToken();
-          setUser(null);
-        })
-        .finally(() => {
+    async function init() {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session && mounted) {
+          const userData = await authApi.me();
+          if (mounted) setUser(userData);
+        }
+      } catch {
+        if (mounted) setUser(null);
+      } finally {
+        if (mounted) {
           setLoading(false);
           setInitialized(true);
-        });
-    } else {
-      setLoading(false);
-      setInitialized(true);
+        }
+      }
     }
+
+    init();
+
+    const { data: sub } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (session) {
+        try {
+          const userData = await authApi.me();
+          if (mounted) setUser(userData);
+        } catch {
+          if (mounted) setUser(null);
+        }
+      } else {
+        if (mounted) setUser(null);
+      }
+      if (mounted) {
+        setLoading(false);
+        setInitialized(true);
+      }
+    });
+
+    return () => {
+      mounted = false;
+      sub.subscription.unsubscribe();
+    };
   }, []);
 
   async function login(email: string, password: string) {
-    const result = await authApi.login(email, password);
-    setAuthToken(result.token);
-    setUser(result.user);
+    await authApi.login(email, password);
+    const userData = await authApi.me();
+    setUser(userData);
   }
 
   async function logout() {
     try {
       await authApi.logout();
-    } catch (e) {
+    } catch {
       // Ignore
     }
-    clearAuthToken();
     setUser(null);
     window.location.href = "/login";
   }

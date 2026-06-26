@@ -48,20 +48,16 @@ export function useAddVariable() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (v: VariableDef) => {
-      await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/variables/catalog`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          key: v.key,
-          label: v.label,
-          descricao: v.descricao,
-          tipo: v.tipo,
-          escopo: v.escopo,
-          oficial: false,
-          obrigatoria: v.obrigatoria,
-          exemplo: v.exemplo ?? null,
-          default_value: v.default ?? null,
-        }),
+      await variablesApi.addToCatalog({
+        key: v.key,
+        label: v.label,
+        descricao: v.descricao,
+        tipo: v.tipo,
+        escopo: v.escopo,
+        oficial: false,
+        obrigatoria: v.obrigatoria,
+        exemplo: v.exemplo ?? null,
+        defaultValue: v.default ?? null,
       });
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: VARS_QK }),
@@ -72,7 +68,9 @@ export function useDeleteVariable() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (key: string) => {
-      console.log('Delete variable:', key);
+      const { supabase } = await import("@/lib/supabase");
+      const { error } = await supabase.from("variable_catalog").delete().eq("key", key);
+      if (error) throw new Error(error.message);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: VARS_QK }),
   });

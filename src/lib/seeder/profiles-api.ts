@@ -31,10 +31,7 @@ export function useProfile(id: string) {
   return useQuery({
     queryKey: [...PROFILES_QK, id],
     queryFn: async (): Promise<SeederProfile> => {
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-      const res = await fetch(`${apiUrl}/api/profiles/${id}`);
-      if (!res.ok) throw new Error('Failed to fetch profile');
-      const data = await res.json();
+      const data = await profilesApi.get(id);
       return apiToProfile(data);
     },
     enabled: !!id,
@@ -54,12 +51,7 @@ export function useUpsertProfile() {
       };
 
       if (p.id) {
-        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-        await fetch(`${apiUrl}/api/profiles/${p.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data),
-        });
+        await profilesApi.update(p.id, data);
       } else {
         await profilesApi.create(data);
       }
@@ -72,8 +64,7 @@ export function useDeleteProfile() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-      await fetch(`${apiUrl}/api/profiles/${id}`, { method: 'DELETE' });
+      await profilesApi.delete(id);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: PROFILES_QK }),
   });

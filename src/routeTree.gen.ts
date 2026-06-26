@@ -30,6 +30,7 @@ import { Route as PainelBrandingIndexRouteImport } from './routes/painel.brandin
 import { Route as PainelAuditoriaIndexRouteImport } from './routes/painel.auditoria.index'
 import { Route as PainelScriptsScriptIdRouteImport } from './routes/painel.scripts.$scriptId'
 import { Route as PainelOrganizacoesOrgIdRouteImport } from './routes/painel.organizacoes.$orgId'
+import { Route as PainelEstacoesStationIdRouteImport } from './routes/painel.estacoes.$stationId'
 
 const SetupRoute = SetupRouteImport.update({
   id: '/setup',
@@ -137,6 +138,11 @@ const PainelOrganizacoesOrgIdRoute = PainelOrganizacoesOrgIdRouteImport.update({
   path: '/organizacoes/$orgId',
   getParentRoute: () => PainelRoute,
 } as any)
+const PainelEstacoesStationIdRoute = PainelEstacoesStationIdRouteImport.update({
+  id: '/estacoes/$stationId',
+  path: '/estacoes/$stationId',
+  getParentRoute: () => PainelRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -144,6 +150,7 @@ export interface FileRoutesByFullPath {
   '/painel': typeof PainelRouteWithChildren
   '/setup': typeof SetupRoute
   '/painel/': typeof PainelIndexRoute
+  '/painel/estacoes/$stationId': typeof PainelEstacoesStationIdRoute
   '/painel/organizacoes/$orgId': typeof PainelOrganizacoesOrgIdRoute
   '/painel/scripts/$scriptId': typeof PainelScriptsScriptIdRoute
   '/painel/auditoria/': typeof PainelAuditoriaIndexRoute
@@ -166,6 +173,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/setup': typeof SetupRoute
   '/painel': typeof PainelIndexRoute
+  '/painel/estacoes/$stationId': typeof PainelEstacoesStationIdRoute
   '/painel/organizacoes/$orgId': typeof PainelOrganizacoesOrgIdRoute
   '/painel/scripts/$scriptId': typeof PainelScriptsScriptIdRoute
   '/painel/auditoria': typeof PainelAuditoriaIndexRoute
@@ -190,6 +198,7 @@ export interface FileRoutesById {
   '/painel': typeof PainelRouteWithChildren
   '/setup': typeof SetupRoute
   '/painel/': typeof PainelIndexRoute
+  '/painel/estacoes/$stationId': typeof PainelEstacoesStationIdRoute
   '/painel/organizacoes/$orgId': typeof PainelOrganizacoesOrgIdRoute
   '/painel/scripts/$scriptId': typeof PainelScriptsScriptIdRoute
   '/painel/auditoria/': typeof PainelAuditoriaIndexRoute
@@ -215,6 +224,7 @@ export interface FileRouteTypes {
     | '/painel'
     | '/setup'
     | '/painel/'
+    | '/painel/estacoes/$stationId'
     | '/painel/organizacoes/$orgId'
     | '/painel/scripts/$scriptId'
     | '/painel/auditoria/'
@@ -237,6 +247,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/setup'
     | '/painel'
+    | '/painel/estacoes/$stationId'
     | '/painel/organizacoes/$orgId'
     | '/painel/scripts/$scriptId'
     | '/painel/auditoria'
@@ -260,6 +271,7 @@ export interface FileRouteTypes {
     | '/painel'
     | '/setup'
     | '/painel/'
+    | '/painel/estacoes/$stationId'
     | '/painel/organizacoes/$orgId'
     | '/painel/scripts/$scriptId'
     | '/painel/auditoria/'
@@ -434,11 +446,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PainelOrganizacoesOrgIdRouteImport
       parentRoute: typeof PainelRoute
     }
+    '/painel/estacoes/$stationId': {
+      id: '/painel/estacoes/$stationId'
+      path: '/estacoes/$stationId'
+      fullPath: '/painel/estacoes/$stationId'
+      preLoaderRoute: typeof PainelEstacoesStationIdRouteImport
+      parentRoute: typeof PainelRoute
+    }
   }
 }
 
 interface PainelRouteChildren {
   PainelIndexRoute: typeof PainelIndexRoute
+  PainelEstacoesStationIdRoute: typeof PainelEstacoesStationIdRoute
   PainelOrganizacoesOrgIdRoute: typeof PainelOrganizacoesOrgIdRoute
   PainelScriptsScriptIdRoute: typeof PainelScriptsScriptIdRoute
   PainelAuditoriaIndexRoute: typeof PainelAuditoriaIndexRoute
@@ -459,6 +479,7 @@ interface PainelRouteChildren {
 
 const PainelRouteChildren: PainelRouteChildren = {
   PainelIndexRoute: PainelIndexRoute,
+  PainelEstacoesStationIdRoute: PainelEstacoesStationIdRoute,
   PainelOrganizacoesOrgIdRoute: PainelOrganizacoesOrgIdRoute,
   PainelScriptsScriptIdRoute: PainelScriptsScriptIdRoute,
   PainelAuditoriaIndexRoute: PainelAuditoriaIndexRoute,

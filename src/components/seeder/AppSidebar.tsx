@@ -78,7 +78,7 @@ export function AppSidebar() {
         <div className="flex flex-col leading-tight">
           <span className="font-display font-bold text-base tracking-tight">SeederLinux</span>
           <span className="text-[10px] uppercase tracking-[0.18em] text-sidebar-foreground/60">
-            V2.0 · FAB
+            v3.0 · FAB
           </span>
         </div>
       </Link>
@@ -117,7 +117,7 @@ export function AppSidebar() {
       </nav>
 
       <div className="px-6 py-4 border-t border-sidebar-border text-[11px] text-sidebar-foreground/60">
-        <div className="font-mono">v2.0.0 · {MODE === "hub" ? "Hub" : "Full"}</div>
+        <div className="font-mono">v3.0 · {MODE === "hub" ? "Hub" : "Full"}</div>
         <div>built for institutions · open by design</div>
       </div>
     </aside>

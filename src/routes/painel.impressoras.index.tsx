@@ -17,6 +17,7 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Printer, Loader as Loader2, Save, Plus, Pencil, Trash2, Check, Server, Building2 } from "lucide-react";
 import { toast } from "sonner";
+import { printerProfilesApi } from "@/lib/api/client";
 
 export const Route = createFileRoute("/painel/impressoras/")({
   head: () => ({ meta: [{ title: "Impressoras - SeederLinux" }] }),
@@ -94,7 +95,12 @@ function PrintersPage() {
     if (!selectedOrgId) return toast.error("Selecione uma organizacao");
     setSaving(true);
     try {
-      await new Promise((r) => setTimeout(r, 500));
+      await printerProfilesApi.upsert({
+        orgId: selectedOrgId,
+        name: `${orgs.find(o => o.id === selectedOrgId)?.sigla ?? "OM"} Print Profile`,
+        cupsServer: form.cupsServer,
+        defaultQueue: form.queues.find(q => q.isDefault)?.name || null,
+      });
       toast.success("Configuracao de impressoras salva");
     } catch (e) {
       toast.error((e as Error).message);

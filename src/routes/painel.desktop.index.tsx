@@ -18,6 +18,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Cpu, Loader as Loader2, Save, Volume2, Monitor, Keyboard, Bell, Building2 } from "lucide-react";
 import { toast } from "sonner";
+import { desktopPoliciesApi } from "@/lib/api/client";
 
 export const Route = createFileRoute("/painel/desktop/")({
   head: () => ({ meta: [{ title: "Politicas Desktop - SeederLinux" }] }),
@@ -101,7 +102,18 @@ function DesktopPoliciesPage() {
     if (!selectedOrgId) return toast.error("Selecione uma organizacao");
     setSaving(true);
     try {
-      await new Promise((r) => setTimeout(r, 500));
+      await desktopPoliciesApi.upsert({
+        orgId: selectedOrgId,
+        theme: form.theme,
+        iconTheme: form.iconTheme,
+        cursorTheme: form.cursorTheme,
+        font: form.font,
+        soundsEnabled: form.soundsEnabled,
+        soundScheme: form.soundScheme,
+        notificationsEnabled: form.notificationsEnabled,
+        screensaverTimeout: form.screensaverTimeout,
+        powerTimeout: form.powerTimeout,
+      });
       toast.success("Politicas de desktop salvas");
     } catch (e) {
       toast.error((e as Error).message);

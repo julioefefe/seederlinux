@@ -18,6 +18,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Globe, Loader as Loader2, Save, Shield, Eye, X, Plus, Building2 } from "lucide-react";
 import { toast } from "sonner";
+import { browserPoliciesApi } from "@/lib/api/client";
 
 export const Route = createFileRoute("/painel/navegadores/")({
   head: () => ({ meta: [{ title: "Politicas de Navegadores - SeederLinux" }] }),
@@ -97,8 +98,18 @@ function BrowserPoliciesPage() {
     if (!selectedOrgId) return toast.error("Selecione uma organizacao");
     setSaving(true);
     try {
-      // In production, this would call the API
-      await new Promise((r) => setTimeout(r, 500));
+      for (const browser of ["firefox", "chrome", "chromium"] as const) {
+        await browserPoliciesApi.upsert({
+          orgId: selectedOrgId,
+          browser,
+          homepage: form[browser].homepage,
+          bookmarksEnabled: form[browser].bookmarksEnabled,
+          proxyEnabled: form[browser].proxyEnabled,
+          certificatesEnabled: form[browser].certificatesEnabled,
+          telemetryDisabled: form[browser].telemetryDisabled,
+          updatesDisabled: form[browser].updatesDisabled,
+        });
+      }
       toast.success("Politicas de navegadores salvas");
     } catch (e) {
       toast.error((e as Error).message);

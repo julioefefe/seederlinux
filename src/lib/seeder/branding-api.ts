@@ -73,8 +73,7 @@ export function useDeleteBranding() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (orgId: string) => {
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-      await fetch(`${apiUrl}/api/branding/${orgId}`, { method: 'DELETE' });
+      await brandingApi.delete(orgId);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: BRANDING_QK }),
   });
