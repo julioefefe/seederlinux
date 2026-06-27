@@ -32,6 +32,8 @@ async function buildServer() {
   await app.register(cors, {
     origin: true,
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
   });
 
   await app.register(jwt, {
@@ -137,6 +139,7 @@ async function buildServer() {
     const bcrypt = await import('bcrypt');
     const hashedPassword = await bcrypt.hash(adminPassword, 10);
 
+    try {
     // Create organization with all fields
     const org = await prisma.organization.create({
       data: {
@@ -278,13 +281,6 @@ async function buildServer() {
       skipDuplicates: true,
     });
 
-    // Mark setup as completed
-    await prisma.systemConfig.upsert({
-      where: { key: 'setup_completed' },
-      update: { value: 'true' },
-      create: { key: 'setup_completed', value: 'true' },
-    });
-
     // Create audit event
     await prisma.auditEvent.create({
       data: {
@@ -296,6 +292,13 @@ async function buildServer() {
         alvo: orgSigla,
         detalhes: `Organization created with profile: ${deployProfile || 'standard'}`
       },
+    });
+
+    // Mark setup as completed ONLY after all operations succeed
+    await prisma.systemConfig.upsert({
+      where: { key: 'setup_completed' },
+      update: { value: 'true' },
+      create: { key: 'setup_completed', value: 'true' },
     });
 
     // Generate JWT
@@ -316,6 +319,10 @@ async function buildServer() {
       },
       organization: org
     };
+    } catch (err: any) {
+      console.error('[setup] Failed:', err.message);
+      return reply.code(500).send({ error: `Setup failed: ${err.message}` });
+    }
   });
 
   app.get('/api/setup/status', async () => {
