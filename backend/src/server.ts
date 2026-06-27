@@ -28,6 +28,24 @@ async function buildServer() {
     },
   });
 
+  // ✅ CORREÇÃO: Serializa BigInt para JSON automaticamente
+  app.addHook('preSerialization', async (request, reply, payload) => {
+    function serializeBigInt(value: any): any {
+      if (value === null || value === undefined) return value;
+      if (typeof value === 'bigint') return Number(value);
+      if (Array.isArray(value)) return value.map(serializeBigInt);
+      if (typeof value === 'object' && value.constructor === Object) {
+        const result: any = {};
+        for (const [key, val] of Object.entries(value)) {
+          result[key] = serializeBigInt(val);
+        }
+        return result;
+      }
+      return value;
+    }
+    return serializeBigInt(payload);
+  });
+
   // Register plugins
   await app.register(cors, {
     origin: true,
@@ -797,9 +815,7 @@ async function buildServer() {
     return prisma.stationRun.findMany({ where: { stationId: request.params.id }, orderBy: { startedAt: 'desc' }, take: 50 });
   });
 
-  // ============================================================================
-  // STATION CHECK-IN (Public API for agents) - CORRIGIDO: removido BigInt
-  // ============================================================================
+  // Station check-in (public API for agents)
   app.post('/api/public/station-checkin', async (request: any, reply) => {
     const { token, hostname, ip, distro, desktop, serial, status, agentVersion } = request.body as any;
 
@@ -814,9 +830,6 @@ async function buildServer() {
 
     const station = tokenRecord.station;
 
-    // ✅ CORRIGIDO: Usando Number em vez de BigInt
-    const serialNumber = Number(serial || 0);
-
     // Update station status
     await prisma.station.update({
       where: { id: station.id },
@@ -825,7 +838,7 @@ async function buildServer() {
         ip: ip || station.ip,
         distro: distro || station.distro,
         desktop: desktop || station.desktop,
-        serialAplicado: serialNumber,
+        serialAplicado: BigInt(serial || 0),
         ultimoCheckin: new Date(),
         status: status || 'ok',
       },
@@ -837,13 +850,13 @@ async function buildServer() {
       data: { lastUsedAt: new Date() },
     });
 
-    // ✅ CORRIGIDO: Comparação com Number em vez de BigInt
-    if (serial && Number(serial) > Number(station.serialAplicado)) {
+    // Create run record if serial changed
+    if (serial && BigInt(serial) > station.serialAplicado) {
       await prisma.stationRun.create({
         data: {
           stationId: station.id,
-          serialAlvo: serialNumber,
-          serialAnterior: Number(station.serialAplicado),
+          serialAlvo: BigInt(serial),
+          serialAnterior: station.serialAplicado,
           status: 'ok',
           agentVersion: agentVersion,
         },
@@ -887,9 +900,6 @@ async function buildServer() {
     return { org, scripts: preview, variables };
   });
 
-  // ============================================================================
-  // PROVISIONING GENERATE - CORRIGIDO: removido BigInt
-  // ============================================================================
   app.post('/api/provisioning/generate', async (request: any, reply) => {
     const { orgId, scriptIds, profileId, stationId } = request.body as any;
     const org = await prisma.organization.findUnique({ where: { id: orgId } });
@@ -908,8 +918,8 @@ async function buildServer() {
       scripts = scripts.filter(s => scriptIds.includes(s.id));
     }
 
-    // ✅ CORRIGIDO: Incremento com Number em vez de BigInt
-    const newSerial = Number(org.serial || 0) + 1;
+    // Increment serial
+    const newSerial = org.serial + BigInt(1);
     await prisma.organization.update({ where: { id: orgId }, data: { serial: newSerial } });
 
     // Variable substitution
