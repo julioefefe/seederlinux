@@ -70,6 +70,10 @@ async function buildServer() {
 
   // Add authentication to all /api/* routes except public ones
   app.addHook('onRequest', async (request: any, reply) => {
+    // Skip authentication for CORS preflight requests - must be handled by cors plugin
+    if (request.method === 'OPTIONS') {
+      return;
+    }
     // Skip authentication for public routes
     if (request.url === '/health' ||
         request.url === '/api/setup' ||
@@ -152,6 +156,38 @@ async function buildServer() {
     if (!expectedToken || receivedToken !== expectedToken) {
       console.log('[setup] Token mismatch. Expected:', expectedToken ? 'set' : 'not set', 'Received:', receivedToken ? 'set' : 'not set');
       return reply.code(401).send({ error: 'Invalid setup token' });
+    }
+
+    // Validate required fields
+    if (!adminEmail || !adminPassword || !orgName || !orgSigla) {
+      return reply.code(400).send({ error: 'Missing required fields: adminEmail, adminPassword, orgName, orgSigla' });
+    }
+
+    // Idempotency: if org with same sigla already exists (from a failed previous attempt), reuse it
+    const existingOrg = await prisma.organization.findUnique({ where: { sigla: orgSigla.toUpperCase() } });
+    if (existingOrg) {
+      console.log('[setup] Org already exists with sigla:', orgSigla.toUpperCase(), '- completing setup');
+      const existingAdmin = await prisma.user.findUnique({ where: { email: adminEmail.toLowerCase() }, include: { roles: true } });
+      if (existingAdmin) {
+        await prisma.systemConfig.upsert({
+          where: { key: 'setup_completed' },
+          update: { value: 'true' },
+          create: { key: 'setup_completed', value: 'true' },
+        });
+        const token = app.jwt.sign({
+          userId: existingAdmin.id,
+          email: existingAdmin.email,
+          roles: existingAdmin.roles.map((r: any) => ({ role: r.role, orgSigla: r.orgSigla })),
+        });
+        return { success: true, token, user: { id: existingAdmin.id, email: existingAdmin.email, displayName: existingAdmin.displayName, roles: existingAdmin.roles }, organization: existingOrg };
+      }
+      return reply.code(409).send({ error: `Organization ${orgSigla.toUpperCase()} already exists but admin ${adminEmail.toLowerCase()} was not found. Use a different sigla or reset the database.` });
+    }
+
+    // Check if admin email already exists
+    const existingAdmin = await prisma.user.findUnique({ where: { email: adminEmail.toLowerCase() } });
+    if (existingAdmin) {
+      return reply.code(409).send({ error: `Admin user with email ${adminEmail.toLowerCase()} already exists.` });
     }
 
     const bcrypt = await import('bcrypt');
@@ -298,6 +334,41 @@ async function buildServer() {
       ],
       skipDuplicates: true,
     });
+
+    // Seed the global variable catalog with all default variables
+    const catalogVars = [
+      { key: 'AD_DOMAIN', label: 'Dominio AD', descricao: 'FQDN do dominio Active Directory', tipo: 'string', escopo: 'core', oficial: true, obrigatoria: true, exemplo: 'comara.intraer', defaultValue: '' },
+      { key: 'AD_REALM', label: 'Realm Kerberos', descricao: 'Realm Kerberos do dominio', tipo: 'string', escopo: 'core', oficial: true, obrigatoria: true, exemplo: 'COMARA.INTRAER', defaultValue: '' },
+      { key: 'AD_NETBIOS', label: 'NetBIOS Domain', descricao: 'Nome NetBIOS do dominio', tipo: 'string', escopo: 'core', oficial: true, obrigatoria: true, exemplo: 'COMARA', defaultValue: '' },
+      { key: 'AD_DC_PRIMARY', label: 'DC Primario IP', descricao: 'IP do Domain Controller primario', tipo: 'string', escopo: 'core', oficial: true, obrigatoria: true, exemplo: '10.108.1.10', defaultValue: '' },
+      { key: 'AD_DC_SECONDARY', label: 'DC Secundario IP', descricao: 'IP do Domain Controller secundario', tipo: 'string', escopo: 'core', oficial: true, obrigatoria: false, exemplo: '10.108.1.11', defaultValue: '' },
+      { key: 'AD_DC_FQDN', label: 'DC FQDN', descricao: 'FQDN do Domain Controller', tipo: 'string', escopo: 'core', oficial: true, obrigatoria: true, exemplo: 'dc01.comara.intraer', defaultValue: '' },
+      { key: 'AD_BACKEND', label: 'Backend Auth', descricao: 'Backend de autenticacao (sssd ou winbind)', tipo: 'string', escopo: 'core', oficial: true, obrigatoria: true, exemplo: 'sssd', defaultValue: 'sssd' },
+      { key: 'AD_METHOD', label: 'Metodo Auth', descricao: 'Metodo de autenticacao (ads ou ldap)', tipo: 'string', escopo: 'core', oficial: true, obrigatoria: true, exemplo: 'ads', defaultValue: 'ads' },
+      { key: 'DNS_PRIMARY', label: 'DNS Primario', descricao: 'Servidor DNS primario', tipo: 'string', escopo: 'core', oficial: true, obrigatoria: true, exemplo: '10.108.1.10', defaultValue: '8.8.8.8' },
+      { key: 'DNS_SECONDARY', label: 'DNS Secundario', descricao: 'Servidor DNS secundario', tipo: 'string', escopo: 'core', oficial: true, obrigatoria: false, exemplo: '10.108.1.11', defaultValue: '' },
+      { key: 'DNS_SEARCH_DOMAINS', label: 'Search Domains', descricao: 'Dominios de busca DNS separados por virgula', tipo: 'string', escopo: 'core', oficial: true, obrigatoria: false, exemplo: 'comara.intraer,intraer', defaultValue: '' },
+      { key: 'NTP_SERVERS', label: 'Servidores NTP', descricao: 'Servidores NTP separados por virgula', tipo: 'string', escopo: 'core', oficial: true, obrigatoria: true, exemplo: 'pool.ntp.org', defaultValue: 'pool.ntp.org' },
+      { key: 'TIMEZONE', label: 'Timezone', descricao: 'Fuso horario do sistema', tipo: 'string', escopo: 'core', oficial: true, obrigatoria: true, exemplo: 'America/Sao_Paulo', defaultValue: 'America/Sao_Paulo' },
+      { key: 'PROXY_HTTP', label: 'Proxy HTTP', descricao: 'URL do proxy HTTP', tipo: 'string', escopo: 'core', oficial: true, obrigatoria: false, exemplo: '10.108.88.4:8080', defaultValue: '' },
+      { key: 'PROXY_HTTPS', label: 'Proxy HTTPS', descricao: 'URL do proxy HTTPS', tipo: 'string', escopo: 'core', oficial: true, obrigatoria: false, exemplo: '10.108.88.4:8080', defaultValue: '' },
+      { key: 'PROXY_FTP', label: 'Proxy FTP', descricao: 'URL do proxy FTP', tipo: 'string', escopo: 'core', oficial: true, obrigatoria: false, exemplo: '10.108.88.4:8080', defaultValue: '' },
+      { key: 'PROXY_NO_PROXY', label: 'No Proxy', descricao: 'Lista de excecoes de proxy separadas por virgula', tipo: 'string', escopo: 'core', oficial: true, obrigatoria: false, exemplo: 'localhost,127.0.0.1,10.0.0.0/8', defaultValue: 'localhost,127.0.0.1' },
+      { key: 'PROXY_ENABLED', label: 'Proxy Habilitado', descricao: 'Se o proxy esta habilitado', tipo: 'boolean', escopo: 'core', oficial: true, obrigatoria: false, exemplo: 'true', defaultValue: 'false' },
+      { key: 'PRINT_SERVER', label: 'Servidor CUPS', descricao: 'Servidor de impressao CUPS', tipo: 'string', escopo: 'core', oficial: true, obrigatoria: false, exemplo: 'cups.comara.intraer', defaultValue: '' },
+      { key: 'PRINT_DEFAULT', label: 'Impressora Padrao', descricao: 'Nome da impressora padrao', tipo: 'string', escopo: 'core', oficial: true, obrigatoria: false, exemplo: 'HP_LaserJet_P2035', defaultValue: '' },
+      { key: 'BRANDING_NAME', label: 'Nome de Exibicao', descricao: 'Nome de exibicao da organizacao', tipo: 'string', escopo: 'core', oficial: true, obrigatoria: false, exemplo: 'COMARA', defaultValue: '' },
+      { key: 'BRANDING_WALLPAPER', label: 'Wallpaper', descricao: 'URL do wallpaper', tipo: 'string', escopo: 'core', oficial: true, obrigatoria: false, exemplo: '/opt/seederlinux/wallpaper.png', defaultValue: '' },
+      { key: 'BRANDING_WALLPAPER_LOGIN', label: 'Wallpaper Login', descricao: 'URL do wallpaper de login', tipo: 'string', escopo: 'core', oficial: true, obrigatoria: false, exemplo: '/opt/seederlinux/login.png', defaultValue: '' },
+      { key: 'BRANDING_LOGO', label: 'Logo', descricao: 'URL do logo da organizacao', tipo: 'string', escopo: 'core', oficial: true, obrigatoria: false, exemplo: '/opt/seederlinux/logo.png', defaultValue: '' },
+      { key: 'BRANDING_GREETER', label: 'Greeter', descricao: 'Configuracao do greeter de login', tipo: 'string', escopo: 'core', oficial: true, obrigatoria: false, exemplo: '', defaultValue: '' },
+      { key: 'BRANDING_THEME', label: 'Tema', descricao: 'Tema do desktop', tipo: 'string', escopo: 'core', oficial: true, obrigatoria: false, exemplo: 'Mint-Y-Dark', defaultValue: 'Mint-Y-Dark' },
+      { key: 'DEPLOY_PROFILE', label: 'Perfil de Deploy', descricao: 'Perfil de deploy (minimal, standard, full, custom)', tipo: 'string', escopo: 'core', oficial: true, obrigatoria: true, exemplo: 'standard', defaultValue: 'standard' },
+      { key: 'ORG_NAME', label: 'Nome da OM', descricao: 'Nome completo da organizacao', tipo: 'string', escopo: 'core', oficial: true, obrigatoria: true, exemplo: 'Comando de Apoio Regional de Aeronautica', defaultValue: '' },
+      { key: 'ORG_SIGLA', label: 'Sigla da OM', descricao: 'Sigla da organizacao', tipo: 'string', escopo: 'core', oficial: true, obrigatoria: true, exemplo: 'COMARA', defaultValue: '' },
+      { key: 'HOSTNAME', label: 'Hostname', descricao: 'Nome da estacao', tipo: 'string', escopo: 'core', oficial: true, obrigatoria: false, exemplo: 'estacao-001', defaultValue: '' },
+    ];
+    await prisma.variableCatalog.createMany({ data: catalogVars, skipDuplicates: true });
 
     // Create audit event
     await prisma.auditEvent.create({
@@ -566,6 +637,37 @@ async function buildServer() {
   // ============================================================================
   // VARIABLES ROUTES
   // ============================================================================
+  app.get('/api/variables/catalog', async (request: any, reply) => {
+    return prisma.variableCatalog.findMany({ orderBy: { key: 'asc' } });
+  });
+
+  app.post('/api/variables/catalog', async (request: any, reply) => {
+    if (!isAdminGap(request.user.roles) && !hasRole(request.user.roles, 'operador_om')) return reply.code(403).send({ error: 'Forbidden' });
+    const { key, label, descricao, tipo, escopo, oficial, obrigatoria, exemplo, defaultValue } = request.body as any;
+    if (!key || !label) return reply.code(400).send({ error: 'key and label are required' });
+    const created = await prisma.variableCatalog.upsert({
+      where: { key },
+      update: { label, descricao, tipo, escopo, oficial, obrigatoria, exemplo, defaultValue },
+      create: { key, label, descricao: descricao || '', tipo: tipo || 'string', escopo: escopo || 'custom', oficial: oficial ?? false, obrigatoria: obrigatoria ?? false, exemplo, defaultValue },
+    });
+    await prisma.auditEvent.create({
+      data: { atorId: request.user.userId, atorEmail: request.user.email, categoria: 'variables', acao: 'catalog_add', alvo: key },
+    });
+    return created;
+  });
+
+  app.delete('/api/variables/catalog/:key', async (request: any, reply) => {
+    if (!isAdminGap(request.user.roles)) return reply.code(403).send({ error: 'Forbidden' });
+    const entry = await prisma.variableCatalog.findUnique({ where: { key: request.params.key } });
+    if (!entry) return reply.code(404).send({ error: 'Not found' });
+    if (entry.oficial) return reply.code(403).send({ error: 'Cannot delete oficial catalog variable' });
+    await prisma.variableCatalog.delete({ where: { key: request.params.key } });
+    await prisma.auditEvent.create({
+      data: { atorId: request.user.userId, atorEmail: request.user.email, categoria: 'variables', acao: 'catalog_delete', alvo: request.params.key },
+    });
+    return { success: true };
+  });
+
   app.get('/api/variables/:orgId', async (request: any, reply) => {
     const org = await prisma.organization.findUnique({ where: { id: request.params.orgId } });
     if (!org) return reply.code(404).send({ error: 'Not found' });
@@ -1112,22 +1214,22 @@ async function buildServer() {
     const original = await prisma.seederProfile.findUnique({ where: { id: request.params.id } });
     if (!original) return reply.code(404).send({ error: 'Not found' });
     const { targetOrgSigla } = request.body as any;
-    let orgId: string | null = null;
+    let orgSigla: string | null = null;
     if (targetOrgSigla) {
       const org = await prisma.organization.findUnique({ where: { sigla: targetOrgSigla } });
-      if (org) orgId = org.id;
+      if (org) orgSigla = org.sigla;
     }
     const copy = await prisma.seederProfile.create({
       data: {
         nome: original.nome + ' (importado)',
         descricao: original.descricao,
         scriptIds: original.scriptIds,
-        organizacaoOrigem: targetOrgSigla || null,
+        organizacaoOrigem: orgSigla,
         publico: false,
         profileType: original.profileType,
       },
     });
-    await prisma.auditEvent.create({ data: { atorId: request.user.userId, atorEmail: request.user.email, categoria: 'profiles', acao: 'import', alvo: original.nome, detalhes: `to ${targetOrgSigla || 'local'}` } });
+    await prisma.auditEvent.create({ data: { atorId: request.user.userId, atorEmail: request.user.email, categoria: 'profiles', acao: 'import', alvo: original.nome, detalhes: `to ${orgSigla || 'local'}` } });
     return copy;
   });
 

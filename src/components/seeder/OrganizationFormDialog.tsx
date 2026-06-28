@@ -137,11 +137,10 @@ export function OrganizationFormDialog({ trigger, organization, onSaved }: Props
       toast.error("Preencha campos obrigatorios: Sigla, FQDN e IP do DC.");
       return;
     }
-    const id = form.id || form.sigla.toLowerCase().replace(/[^a-z0-9]/g, "-");
     const sigla = form.sigla.toUpperCase();
     const final: Organization = {
       ...form,
-      id,
+      id: form.id,
       sigla,
       netbios: form.netbios || sigla,
       realm: form.realm || sigla.toUpperCase(),
