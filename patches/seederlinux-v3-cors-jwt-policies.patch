@@ -1,0 +1,562 @@
+diff --git a/backend/src/server.ts b/backend/src/server.ts
+index 0b9a78c..ac99c01 100644
+--- a/backend/src/server.ts
++++ b/backend/src/server.ts
+@@ -156,6 +156,150 @@ async function createDefaultOrgVariables(
+   }
+ }
+ 
++/**
++ * Cria as políticas padrão de uma OM recém-criada (Setup Wizard e CRUD).
++ * Cobre: BrowserPolicy (Firefox+Chrome), PrinterProfile, DesktopPolicy,
++ *        Repository (PUBLIC) e OfflineAuthPolicy.
++ *
++ * Documentos: 03 §13-18, 04 §6-12, 14 §15-23.
++ *
++ * Idempotente — usa upserts. Pode ser chamado novamente em re-seed.
++ */
++async function createDefaultPolicies(
++  orgId: string,
++  opts: {
++    homepage?: string;
++    cupsServer?: string;
++    defaultPrinter?: string;
++    theme?: string;
++    adDomain?: string;
++    offlineDays?: number;
++  } = {}
++): Promise<void> {
++  // 1) BrowserPolicy — Firefox
++  await prisma.browserPolicy.upsert({
++    where: { orgId_browser: { orgId, browser: 'firefox' } },
++    update: {},
++    create: {
++      orgId,
++      browser: 'firefox',
++      homepage: opts.homepage || 'about:home',
++      bookmarksEnabled: true,
++      proxyEnabled: false,
++      certificatesEnabled: true,
++      telemetryDisabled: true,
++      updatesDisabled: false,
++      config: {
++        // policies.json (Mozilla Enterprise Policies)
++        policies: {
++          DisableTelemetry: true,
++          DisableFirefoxStudies: true,
++          DisablePocket: true,
++          DontCheckDefaultBrowser: true,
++          OfferToSaveLogins: false,
++          Homepage: {
++            URL: opts.homepage || 'about:home',
++            Locked: false,
++            StartPage: 'homepage',
++          },
++          Certificates: { ImportEnterpriseRoots: true },
++        },
++      },
++    },
++  });
++
++  // 1) BrowserPolicy — Chrome/Chromium
++  await prisma.browserPolicy.upsert({
++    where: { orgId_browser: { orgId, browser: 'chrome' } },
++    update: {},
++    create: {
++      orgId,
++      browser: 'chrome',
++      homepage: opts.homepage || 'about:blank',
++      bookmarksEnabled: true,
++      proxyEnabled: false,
++      certificatesEnabled: true,
++      telemetryDisabled: true,
++      updatesDisabled: false,
++      config: {
++        // /etc/opt/chrome/policies/managed/seederlinux.json
++        HomepageLocation: opts.homepage || 'about:blank',
++        HomepageIsNewTabPage: false,
++        MetricsReportingEnabled: false,
++        DefaultBrowserSettingEnabled: false,
++        PasswordManagerEnabled: false,
++        CloudReportingEnabled: false,
++      },
++    },
++  });
++
++  // 2) PrinterProfile (CUPS) — única por OM
++  const existingPrinter = await prisma.printerProfile.findFirst({
++    where: { orgId, name: 'default' },
++  });
++  if (!existingPrinter) {
++    await prisma.printerProfile.create({
++      data: {
++        orgId,
++        name: 'default',
++        cupsServer: opts.cupsServer || '',
++        defaultQueue: opts.defaultPrinter || null,
++      },
++    });
++  }
++
++  // 3) DesktopPolicy
++  await prisma.desktopPolicy.upsert({
++    where: { orgId },
++    update: {},
++    create: {
++      orgId,
++      theme: opts.theme || 'Mint-Y-Dark',
++      iconTheme: 'Mint-Y',
++      cursorTheme: 'DMZ-White',
++      font: 'Ubuntu 10',
++      soundsEnabled: true,
++      notificationsEnabled: true,
++      screensaverTimeout: 900,
++      powerTimeout: 1800,
++      lockTimeout: 600,
++    },
++  });
++
++  // 4) Repository (PUBLIC) — repositório padrão da distro
++  const existingRepo = await prisma.repository.findFirst({
++    where: { orgId, name: 'default-public' },
++  });
++  if (!existingRepo) {
++    await prisma.repository.create({
++      data: {
++        orgId,
++        name: 'default-public',
++        type: 'PUBLIC',
++        url: '',
++        enabled: true,
++        isOfficial: true,
++      },
++    });
++  }
++
++  // 5) OfflineAuthPolicy — cache de credenciais (Documento 04 §4, 14 §28)
++  await prisma.offlineAuthPolicy.upsert({
++    where: { orgId },
++    update: {},
++    create: {
++      orgId,
++      enabled: true,
++      cacheCredentials: true,
++      offlineDays: opts.offlineDays ?? 30,
++      maxOfflineLogins: 10,
++      autoSync: true,
++      adDomain: opts.adDomain || null,
++      sssdConfig: null,
++    },
++  });
++}
++
+ function validateValue(value: string, type: string): boolean {
+   if (!value) return true;
+   switch (type) {
+@@ -214,33 +358,120 @@ async function buildServer(httpsOptions?: { cert: string; key: string }) {
+   });
+ 
+   await app.register(cors, {
+-    origin: true,
++    // Documento 15 v3.1 — CORS com allowlist.
++    // CORS_ORIGIN aceita lista separada por vírgulas; '*' libera tudo.
++    // Defaults seguros para ambientes COMARA/FAB e localhost.
++    origin: (origin, cb) => {
++      // Allowlist padrão (dev + ambientes institucionais conhecidos)
++      const DEFAULT_ALLOWED = [
++        'http://localhost:3000',
++        'http://localhost:5173',
++        'http://10.108.64.49:3000',
++        'https://seederlinux.comara.intraer',
++        'https://seederlinux.comara.intraer:3000',
++      ];
++      const raw = (process.env.CORS_ORIGIN || '').trim();
++      const extra = raw && raw !== '*'
++        ? raw.split(',').map((s) => s.trim()).filter(Boolean)
++        : [];
++      const allowed = [...DEFAULT_ALLOWED, ...extra];
++
++      // Requisições sem header Origin (curl, agentes, server-to-server)
++      if (!origin) return cb(null, true);
++      if (raw === '*') return cb(null, true);
++
++      // Match exato OU sufixo .intraer (domínio institucional FAB)
++      if (allowed.includes(origin) || origin.endsWith('.intraer')) {
++        return cb(null, true);
++      }
++      app.log.warn({ origin }, '[cors] Origin rejected');
++      return cb(new Error(`Not allowed by CORS: ${origin}`), false);
++    },
+     credentials: true,
+     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+-    allowedHeaders: ['Content-Type', 'Authorization'],
++    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Station-Token'],
++    exposedHeaders: ['Content-Disposition', 'WWW-Authenticate'],
++    maxAge: 86400,
+   });
+ 
++  // JWT_SECRET é OBRIGATÓRIO — sem fallback inseguro (Documento 15 §5)
++  if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
++    throw new Error(
++      'JWT_SECRET is required and must be at least 32 characters. ' +
++      'Generate one with: openssl rand -base64 48'
++    );
++  }
++
+   await app.register(jwt, {
+-    secret: process.env.JWT_SECRET || 'seederlinux-jwt-secret',
++    secret: process.env.JWT_SECRET,
+   });
+ 
++  /**
++   * Authenticate middleware (Documento 15 §5).
++   * Valida o JWT contra JWT_SECRET, verifica que o usuário ainda
++   * existe e não está bloqueado. Sem esse último check, um token
++   * de um usuário desativado continuaria válido até expirar.
++   */
+   const authenticate = async function (request: any, reply: any) {
++    // 1. Header Authorization presente?
++    const authHeader = request.headers.authorization;
++    if (!authHeader || !authHeader.startsWith('Bearer ')) {
++      return reply.code(401).send({
++        success: false,
++        message: 'No token provided',
++      });
++    }
++
++    // 2. Verifica assinatura + expiração via @fastify/jwt
++    let payload: any;
+     try {
+-      await request.jwtVerify();
+-    } catch {
+-      return reply.code(401).send({ error: 'Unauthorized' });
++      payload = await request.jwtVerify();
++    } catch (err: any) {
++      app.log.warn({ err: err?.message }, '[auth] JWT verification failed');
++      return reply.code(401).send({
++        success: false,
++        message: 'Invalid or expired token',
++      });
++    }
++
++    // 3. Usuário ainda existe e não está bloqueado?
++    const userId = payload?.userId;
++    if (!userId) {
++      return reply.code(401).send({
++        success: false,
++        message: 'Invalid token payload',
++      });
++    }
++
++    const dbUser = await prisma.user.findUnique({
++      where: { id: userId },
++      include: { roles: true },
++    });
++    if (!dbUser || dbUser.blocked) {
++      return reply.code(401).send({
++        success: false,
++        message: 'User not found or blocked',
++      });
+     }
++
++    // 4. Anexa dados frescos ao request (roles do DB, não do token)
++    request.user = {
++      userId: dbUser.id,
++      email: dbUser.email,
++      roles: dbUser.roles.map((r: any) => ({ role: r.role, orgSigla: r.orgSigla })),
++    };
+   };
+ 
+   app.addHook('onRequest', async (request: any, reply) => {
+     if (request.method === 'OPTIONS') return;
+-    if (
+-      request.url === '/health' ||
+-      request.url === '/api/setup' ||
+-      request.url === '/api/setup/status' ||
+-      request.url === '/api/auth/login' ||
+-      request.url.startsWith('/api/public/')
+-    ) {
++    // Rotas públicas
++    const publicRoutes = [
++      '/health',
++      '/api/setup',
++      '/api/setup/status',
++      '/api/auth/login',
++    ];
++    if (publicRoutes.includes(request.url) || request.url.startsWith('/api/public/')) {
+       return;
+     }
+     if (request.url.startsWith('/api/')) {
+@@ -360,6 +591,18 @@ async function buildServer(httpsOptions?: { cert: string; key: string }) {
+         },
+       });
+ 
++      // 4.1 Cria políticas padrão da OM (Documentos 03, 04, 14)
++      await createDefaultPolicies(org.id, {
++        homepage: customVariables?.HOMEPAGE,
++        cupsServer: customVariables?.PRINT_SERVER,
++        defaultPrinter: customVariables?.DEFAULT_PRINTER,
++        theme: customVariables?.THEME || 'Mint-Y-Dark',
++        adDomain: customVariables?.DOMINIO,
++        offlineDays: customVariables?.OFFLINE_AUTH_DAYS
++          ? parseInt(customVariables.OFFLINE_AUTH_DAYS, 10)
++          : 30,
++      });
++
+       // 5. Cria admin
+       const hashedPassword = await bcrypt.hash(adminPassword, 10);
+       const admin = await prisma.user.create({
+@@ -676,6 +919,18 @@ async function buildServer(httpsOptions?: { cert: string; key: string }) {
+       },
+     });
+ 
++    // Políticas padrão da nova OM
++    await createDefaultPolicies(org.id, {
++      homepage: config?.HOMEPAGE,
++      cupsServer: config?.PRINT_SERVER,
++      defaultPrinter: config?.DEFAULT_PRINTER,
++      theme: config?.THEME || 'Mint-Y-Dark',
++      adDomain: config?.DOMINIO,
++      offlineDays: config?.OFFLINE_AUTH_DAYS
++        ? parseInt(config.OFFLINE_AUTH_DAYS, 10)
++        : 30,
++    });
++
+     await prisma.auditEvent.create({
+       data: {
+         atorId: request.user.userId,
+@@ -1898,6 +2153,21 @@ async function buildServer(httpsOptions?: { cert: string; key: string }) {
+ }
+ 
+ async function start() {
++  // Validação crítica de segurança (Documento 15 §5)
++  if (!process.env.JWT_SECRET) {
++    console.error('❌ JWT_SECRET environment variable is required!');
++    console.error('   Generate one with: openssl rand -base64 48');
++    process.exit(1);
++  }
++  if (process.env.JWT_SECRET.length < 32) {
++    console.error('❌ JWT_SECRET must be at least 32 characters for security.');
++    process.exit(1);
++  }
++  if (process.env.JWT_SECRET === 'seederlinux-jwt-secret') {
++    console.error('❌ JWT_SECRET cannot use the legacy default value.');
++    process.exit(1);
++  }
++
+   const port = parseInt(process.env.PORT || '8000', 10);
+   const tlsDisabled = process.env.TLS_DISABLED === 'true';
+ 
+diff --git a/prisma/migrations/20260104000000_add_desktop_offline_auth_policies/migration.sql b/prisma/migrations/20260104000000_add_desktop_offline_auth_policies/migration.sql
+new file mode 100644
+index 0000000..bbc3fad
+--- /dev/null
++++ b/prisma/migrations/20260104000000_add_desktop_offline_auth_policies/migration.sql
+@@ -0,0 +1,41 @@
++-- CreateTable: desktop_policies
++CREATE TABLE "desktop_policies" (
++    "org_id" TEXT NOT NULL,
++    "theme" TEXT NOT NULL DEFAULT 'Mint-Y-Dark',
++    "icon_theme" TEXT,
++    "cursor_theme" TEXT,
++    "font" TEXT,
++    "sounds_enabled" BOOLEAN NOT NULL DEFAULT true,
++    "sound_scheme" TEXT,
++    "notifications_enabled" BOOLEAN NOT NULL DEFAULT true,
++    "screensaver_timeout" INTEGER NOT NULL DEFAULT 900,
++    "power_timeout" INTEGER NOT NULL DEFAULT 1800,
++    "lock_timeout" INTEGER NOT NULL DEFAULT 600,
++    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++    "updatedAt" TIMESTAMP(3) NOT NULL,
++
++    CONSTRAINT "desktop_policies_pkey" PRIMARY KEY ("org_id")
++);
++
++-- CreateTable: offline_auth_policies
++CREATE TABLE "offline_auth_policies" (
++    "org_id" TEXT NOT NULL,
++    "enabled" BOOLEAN NOT NULL DEFAULT true,
++    "cache_credentials" BOOLEAN NOT NULL DEFAULT true,
++    "offline_days" INTEGER NOT NULL DEFAULT 30,
++    "max_offline_logins" INTEGER NOT NULL DEFAULT 10,
++    "auto_sync" BOOLEAN NOT NULL DEFAULT true,
++    "sssd_config" TEXT,
++    "ad_domain" TEXT,
++    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++    "updatedAt" TIMESTAMP(3) NOT NULL,
++
++    CONSTRAINT "offline_auth_policies_pkey" PRIMARY KEY ("org_id")
++);
++
++-- AddForeignKey
++ALTER TABLE "desktop_policies" ADD CONSTRAINT "desktop_policies_org_id_fkey"
++    FOREIGN KEY ("org_id") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++
++ALTER TABLE "offline_auth_policies" ADD CONSTRAINT "offline_auth_policies_org_id_fkey"
++    FOREIGN KEY ("org_id") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+diff --git a/prisma/schema.prisma b/prisma/schema.prisma
+index 764e6d8..60ebd70 100644
+--- a/prisma/schema.prisma
++++ b/prisma/schema.prisma
+@@ -125,6 +125,8 @@ model Organization {
+   browserPolicies BrowserPolicy[]
+   printerProfiles PrinterProfile[]
+   repositories    Repository[]
++  desktopPolicy   DesktopPolicy?
++  offlineAuthPolicy OfflineAuthPolicy?
+ 
+   @@map("organizations")
+ }
+@@ -667,3 +669,48 @@ model Repository {
+ 
+   @@map("repositories")
+ }
++
++// =============================================================================
++// DESKTOP POLICIES (Documento 03/14 — políticas de ambiente gráfico)
++// =============================================================================
++
++model DesktopPolicy {
++  orgId                 String   @id @map("org_id")
++  theme                 String   @default("Mint-Y-Dark")
++  iconTheme             String?  @map("icon_theme")
++  cursorTheme           String?  @map("cursor_theme")
++  font                  String?
++  soundsEnabled         Boolean  @default(true) @map("sounds_enabled")
++  soundScheme           String?  @map("sound_scheme")
++  notificationsEnabled  Boolean  @default(true) @map("notifications_enabled")
++  screensaverTimeout    Int      @default(900) @map("screensaver_timeout")
++  powerTimeout          Int      @default(1800) @map("power_timeout")
++  lockTimeout           Int      @default(600)  @map("lock_timeout")
++  createdAt             DateTime @default(now())
++  updatedAt             DateTime @updatedAt
++
++  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
++
++  @@map("desktop_policies")
++}
++
++// =============================================================================
++// OFFLINE AUTH POLICIES (Documento 04 §4 / Documento 14 §28)
++// =============================================================================
++
++model OfflineAuthPolicy {
++  orgId             String   @id @map("org_id")
++  enabled           Boolean  @default(true)
++  cacheCredentials  Boolean  @default(true) @map("cache_credentials")
++  offlineDays       Int      @default(30)   @map("offline_days")
++  maxOfflineLogins  Int      @default(10)   @map("max_offline_logins")
++  autoSync          Boolean  @default(true) @map("auto_sync")
++  sssdConfig        String?  @map("sssd_config")  @db.Text
++  adDomain          String?  @map("ad_domain")
++  createdAt         DateTime @default(now())
++  updatedAt         DateTime @updatedAt
++
++  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
++
++  @@map("offline_auth_policies")
++}
+diff --git a/src/lib/api/client.ts b/src/lib/api/client.ts
+index 4328c0b..3339a51 100644
+--- a/src/lib/api/client.ts
++++ b/src/lib/api/client.ts
+@@ -1,7 +1,29 @@
+ // SeederLinux v3.0 API Client
+ // Fastify + Prisma backend via fetch()
+ 
+-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
++/**
++ * Resolve a URL base da API:
++ * 1. VITE_API_URL explícito tem prioridade
++ * 2. Caso contrário, deriva do protocolo da página:
++ *    - https://seederlinux.local → https://seederlinux.local:8000
++ *    - http://localhost:3000 → http://localhost:8000
++ * Isso garante que, quando o TLS estiver ativo (Doc 15 v3.1),
++ * o frontend chame a API por HTTPS automaticamente — evitando
++ * mixed-content e erros de CORS por mismatch de scheme.
++ */
++function resolveApiUrl(): string {
++  const explicit = import.meta.env.VITE_API_URL as string | undefined;
++  if (explicit && explicit.trim()) return explicit.trim().replace(/\/+$/, '');
++
++  if (typeof window !== 'undefined' && window.location) {
++    const { protocol, hostname } = window.location;
++    const apiPort = (import.meta.env.VITE_API_PORT as string | undefined) || '8000';
++    return `${protocol}//${hostname}:${apiPort}`;
++  }
++  return 'http://localhost:8000';
++}
++
++const API_URL = resolveApiUrl();
+ 
+ let authToken: string | null = null;
+ 
+diff --git a/vite.config.ts b/vite.config.ts
+index 645a20a..0f11239 100644
+--- a/vite.config.ts
++++ b/vite.config.ts
+@@ -5,5 +5,63 @@
+ //     error logger plugins, and sandbox detection (port/host/strictPort).
+ // You can pass additional config via defineConfig({ vite: { ... } }) if needed.
+ import { defineConfig } from "@lovable.dev/vite-tanstack-config";
++import fs from "node:fs";
+ 
+-export default defineConfig();
++/**
++ * TLS opcional no dev server (Documento 15 v3.1 — TLS-first).
++ * Ative com:
++ *   VITE_DEV_HTTPS=true
++ *   VITE_DEV_CERT=/path/to/server.crt
++ *   VITE_DEV_KEY=/path/to/server.key
++ * Os mesmos certificados gerados pelo Setup Wizard (TLS_DIR) podem ser
++ * reutilizados — o agente também precisa do CA para confiar.
++ */
++function buildDevHttps() {
++  if (process.env.VITE_DEV_HTTPS !== "true") return undefined;
++  const certPath = process.env.VITE_DEV_CERT;
++  const keyPath = process.env.VITE_DEV_KEY;
++  if (!certPath || !keyPath) return undefined;
++  try {
++    return {
++      cert: fs.readFileSync(certPath),
++      key: fs.readFileSync(keyPath),
++    };
++  } catch (err) {
++    // eslint-disable-next-line no-console
++    console.warn("[vite] VITE_DEV_HTTPS habilitado mas cert/key não foram lidos:", err);
++    return undefined;
++  }
++}
++
++const https = buildDevHttps();
++
++/**
++ * Proxy para a API:
++ * - Em dev, o frontend chama `/api/*` que é proxado para VITE_API_URL.
++ * - `secure: false` permite aceitar certificados auto-assinados do backend
++ *   (Documento 15 §3.2 — modo SELF_SIGNED).
++ */
++const apiTarget =
++  process.env.VITE_API_PROXY_TARGET ||
++  process.env.VITE_API_URL ||
++  "http://localhost:8000";
++
++export default defineConfig({
++  vite: {
++    server: {
++      ...(https ? { https } : {}),
++      proxy: {
++        "/api": {
++          target: apiTarget,
++          changeOrigin: true,
++          secure: false,
++        },
++        "/health": {
++          target: apiTarget,
++          changeOrigin: true,
++          secure: false,
++        },
++      },
++    },
++  },
++});
